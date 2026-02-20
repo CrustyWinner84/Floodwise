@@ -1,0 +1,671 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Weather, Historical & Flood Data</title>
+    <link href="https://fonts.googleapis.com/css2?family=McLaren&display=swap" rel="stylesheet">
+    <style>
+      html, body { height: 100%; }
+      #decor-overlay { position: fixed; inset: 0; pointer-events: none; z-index: -1; opacity: 0.18; }
+      .decor-svg { mix-blend-mode: screen; }
+      body { 
+        font-family: 'McLaren', Arial, sans-serif !important; 
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        max-width: 900px; 
+        margin: 2rem auto; 
+        padding: 0 1rem; 
+        /* Dark red -> maroon gradient with subtle decorative shapes and stripes */
+        background-image:
+          radial-gradient(circle at 10% 15%, rgba(255,255,255,0.03) 0 12%, transparent 35%),
+          radial-gradient(circle at 85% 80%, rgba(255,255,255,0.02) 0 18%, transparent 45%),
+          repeating-linear-gradient(45deg, rgba(255,255,255,0.01) 0 2px, transparent 2px 60px),
+          linear-gradient(135deg, #3b0000 0%, #200000 100%);
+        background-blend-mode: overlay, overlay, overlay, normal;
+        color: #fff;
+      }
+      /* Ensure all text elements inherit McLaren */
+      body, body * { font-family: 'McLaren', Arial, sans-serif !important; }
+      h1 { color: #fff; }
+
+      /* Ensure white page background elements display readable dark text */
+      .tab-content, .risk-card, .summary, .water-body-info, pre {
+        color: #222;
+      }
+      .search-box {
+        display: flex;
+        gap: 10px;
+        margin: 1.5rem 0;
+      }
+      input { 
+        padding: 0.7rem; 
+        font-size: 1rem;
+        flex: 1;
+      }
+      button { 
+        padding: 0.7rem 1.5rem; 
+        font-size: 1rem;
+        background: #007bff;
+        color: white;
+        border: none;
+        cursor: pointer;
+        border-radius: 4px;
+      }
+      button:hover { background: #0056b3; }
+      
+      .tabs {
+        display: flex;
+        gap: 5px;
+        margin: 1.5rem 0 0;
+        border-bottom: 2px solid #ddd;
+      }
+      .tab-btn {
+        padding: 0.7rem 1.2rem;
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 1rem;
+        border-bottom: 3px solid transparent;
+        color: #666;
+      }
+      .tab-btn.active {
+        border-bottom-color: #007bff;
+        color: #007bff;
+      }
+      
+      .tab-content {
+        display: none;
+        background: white;
+        padding: 1.5rem;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        margin-top: 0;
+      }
+      .tab-content.active { display: block; }
+      
+      .date-range {
+        display: flex;
+        gap: 1rem;
+        margin-bottom: 1rem;
+      }
+      .date-range input {
+        flex: 1;
+        padding: 0.5rem;
+      }
+      
+      pre { 
+        background: #f6f8fa; 
+        padding: 1rem;
+        border-radius: 4px;
+        overflow-x: auto;
+        max-height: 400px;
+        overflow-y: auto;
+      }
+      
+      .summary {
+        background: #e7f3ff;
+        border-left: 4px solid #2196F3;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        border-radius: 4px;
+      }
+      
+      .flood-risk-low { color: green; }
+      .flood-risk-moderate { color: orange; }
+      .flood-risk-high { color: red; }
+      
+      .risk-card {
+        background: white;
+        border-radius: 8px;
+        padding: 1.5rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      }
+      
+      .risk-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding-bottom: 1rem;
+        border-bottom: 2px solid #ddd;
+      }
+      
+      .location-info h3 {
+        margin: 0;
+        color: #333;
+        font-size: 1.3rem;
+      }
+      
+      .location-info p {
+        margin: 0.3rem 0 0 0;
+        color: #666;
+        font-size: 0.9rem;
+      }
+      
+      .risk-badge {
+        padding: 1rem 1.5rem;
+        border-radius: 8px;
+        text-align: center;
+        font-weight: bold;
+      }
+      
+      .risk-badge.low {
+        background: #c8e6c9;
+        color: #2e7d32;
+        border: 2px solid #2e7d32;
+      }
+      
+      .risk-badge.moderate {
+        background: #ffe0b2;
+        color: #f57c00;
+        border: 2px solid #f57c00;
+      }
+      
+      .risk-badge.high {
+        background: #ffcdd2;
+        color: #c62828;
+        border: 2px solid #c62828;
+      }
+      
+      .weather-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+      
+      .weather-item {
+        background: #f5f5f5;
+        padding: 1rem;
+        border-radius: 6px;
+        text-align: center;
+      }
+      
+      .weather-item-label {
+        font-size: 0.85rem;
+        color: #666;
+        margin-bottom: 0.3rem;
+      }
+      
+      .weather-item-value {
+        font-size: 1.3rem;
+        font-weight: bold;
+        color: #333;
+      }
+      
+      .factors-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1rem;
+      }
+      
+      .factors-table th {
+        background: #f5f5f5;
+        padding: 0.8rem;
+        text-align: left;
+        border-bottom: 2px solid #ddd;
+        font-weight: bold;
+        color: #333;
+      }
+      
+      .factors-table td {
+        padding: 0.8rem;
+        border-bottom: 1px solid #eee;
+      }
+      
+      .factors-table tr:hover {
+        background: #f9f9f9;
+      }
+      
+      .factor-label {
+        color: #666;
+      }
+      
+      .factor-value {
+        font-weight: bold;
+        color: #333;
+      }
+      
+      .water-body-info {
+        background: #e3f2fd;
+        border-left: 4px solid #1976d2;
+        padding: 1rem;
+        border-radius: 4px;
+        margin-bottom: 1rem;
+      }
+      
+      .water-body-info.active {
+        background: #fff3e0;
+        border-left-color: #f57c00;
+      }
+      
+      .error { 
+        background: #ffebee;
+        border-left: 4px solid #f44336;
+        padding: 1rem;
+        border-radius: 4px;
+        color: #c62828;
+      }
+      
+      .loading { color: #666; font-style: italic; }
+    </style>
+  </head>
+  <body>
+    <!-- Decorative overlay for stick figures (non-interactive) -->
+    <div id="decor-overlay" aria-hidden="true">
+      <!-- Sun (stick figure) -->
+      <svg class="decor-svg" width="140" height="140" viewBox="0 0 64 64" style="position: absolute; right: 6%; top: 6%;" aria-hidden="true">
+        <circle cx="32" cy="24" r="8" fill="none" stroke="rgba(255,250,240,0.95)" stroke-width="2" />
+        <g stroke="rgba(255,250,240,0.95)" stroke-width="2">
+          <line x1="32" y1="8" x2="32" y2="0" />
+          <line x1="32" y1="40" x2="32" y2="48" />
+          <line x1="48" y1="24" x2="56" y2="24" />
+          <line x1="16" y1="24" x2="8" y2="24" />
+          <line x1="45" y1="10" x2="52" y2="4" />
+          <line x1="19" y1="10" x2="12" y2="4" />
+        </g>
+      </svg>
+
+      <!-- Cloud (stick figure) -->
+      <svg class="decor-svg" width="220" height="120" viewBox="0 0 100 50" style="position: absolute; left: 4%; top: 12%;" aria-hidden="true">
+        <g stroke="rgba(255,250,240,0.9)" stroke-width="2" fill="none">
+          <path d="M20 30 q10 -20 30 -10 q10 -15 30 -5 q10 5 10 15 q0 15 -60 15 z" />
+        </g>
+      </svg>
+
+      <!-- Rain (stick figure) -->
+      <svg class="decor-svg" width="80" height="140" viewBox="0 0 40 80" style="position: absolute; right: 14%; bottom: 8%;" aria-hidden="true">
+        <g stroke="rgba(255,250,240,0.9)" stroke-width="2" fill="none">
+          <path d="M6 24 q6 -14 18 -8 q6 -8 12 -2" />
+          <line x1="8" y1="36" x2="6" y2="48" />
+          <line x1="18" y1="36" x2="16" y2="50" />
+          <line x1="28" y1="36" x2="26" y2="48" />
+        </g>
+      </svg>
+    </div>
+    <h1>Weather & Environmental Data Lookup</h1>
+    <div style="margin-bottom:0.8rem;">
+      <label style="font-size:0.9rem; color: rgba(255,255,255,0.9);">Camera URL (optional): <input id="camera-url" placeholder="http://example.com/mjpeg" style="width:60%; padding:0.4rem; margin-left:0.5rem;" /></label>
+      <button id="camera-load" style="margin-left:0.5rem; padding:0.4rem 0.8rem;">Load Camera</button>
+    </div>
+    <p>Search any location (city, address, or landmark) to get current weather, historical data, and flood risk.</p>
+    
+    <div class="search-box">
+      <input id="q" placeholder="e.g., London, 1600 Amphitheatre Parkway, Venice" size="50" />
+      <button id="btn">Get Data</button>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="current">Current Weather</button>
+      <button class="tab-btn" data-tab="historical">Historical Data</button>
+      <button class="tab-btn" data-tab="flood">Flood Risk</button>
+      <button class="tab-btn" data-tab="flood-date">Flood Risk by Date</button>
+    </div>
+
+    <!-- Current Weather Tab -->
+    <div class="tab-content active" id="current">
+      <h2>Current Weather</h2>
+      <div id="current-out">No data yet. Enter a location and click "Get Data".</div>
+    </div>
+
+    <!-- Historical Data Tab -->
+    <div class="tab-content" id="historical">
+      <h2>Historical Weather Data</h2>
+      <div class="date-range">
+        <label>From: <input type="date" id="start-date" /></label>
+        <label>To: <input type="date" id="end-date" /></label>
+        <button id="hist-btn">Load Historical</button>
+      </div>
+      <div id="hist-out">No data yet. Select a location and date range, then click "Load Historical".</div>
+    </div>
+
+    <!-- Flood Risk Tab -->
+    <div class="tab-content" id="flood">
+      <h2>Flood Risk Assessment</h2>
+      <div id="flood-out">No data yet. Enter a location and click "Get Data".</div>
+    </div>
+
+    <!-- Flood Risk by Date Tab -->
+    <div class="tab-content" id="flood-date">
+      <h2>Flood Risk Analysis for Specific Date</h2>
+      <div style="margin-bottom: 1rem;">
+        <label>Select Date: <input type="date" id="flood-date-picker" /></label>
+        <button id="flood-date-btn">Analyze Flood Risk for Date</button>
+      </div>
+      <div id="flood-date-out">No data yet. Enter a location, select a date, and click "Analyze Flood Risk for Date".</div>
+    </div>
+
+    <script>
+      const btn = document.getElementById('btn');
+      const histBtn = document.getElementById('hist-btn');
+      const floodDateBtn = document.getElementById('flood-date-btn');
+      const q = document.getElementById('q');
+      const cameraUrlInput = document.getElementById('camera-url');
+      const cameraLoadBtn = document.getElementById('camera-load');
+      const currentOut = document.getElementById('current-out');
+      const histOut = document.getElementById('hist-out');
+      const floodOut = document.getElementById('flood-out');
+      const floodDateOut = document.getElementById('flood-date-out');
+      const startDate = document.getElementById('start-date');
+      const endDate = document.getElementById('end-date');
+      const floodDatePicker = document.getElementById('flood-date-picker');
+      
+      // Set default dates (30 days ago to today)
+      const today = new Date();
+      const thirtyDaysAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+      endDate.valueAsDate = today;
+      startDate.valueAsDate = thirtyDaysAgo;
+      floodDatePicker.valueAsDate = today;
+
+      // Tab switching
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const tabName = btn.getAttribute('data-tab');
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+          btn.classList.add('active');
+          document.getElementById(tabName).classList.add('active');
+        });
+      });
+
+      function formatDate(d) {
+        return d.toISOString().split('T')[0];
+      }
+
+      async function fetchCurrentWeather() {
+        const v = q.value.trim();
+        if (!v) return;
+        currentOut.innerHTML = '<div class="loading">Loading...</div>';
+        try {
+          const res = await fetch('/api/weather/current?location=' + encodeURIComponent(v));
+          const data = await res.json();
+          if (!res.ok) {
+            currentOut.innerHTML = '<div class="error">' + JSON.stringify(data, null, 2) + '</div>';
+            return;
+          }
+          const w = data.current_weather;
+          const elevDisplay = data.elevation_m ? ` | Elevation: ${data.elevation_m} m` : '';
+          const summary = `
+            <div class="summary">
+              <strong>${data.location}</strong> (${data.latitude.toFixed(2)}°, ${data.longitude.toFixed(2)}°)${elevDisplay}<br/>
+              Temperature: ${w.temperature}°C | Wind: ${w.windspeed} km/h | Code: ${w.weathercode}
+            </div>
+          `;
+          currentOut.innerHTML = summary + '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+        } catch (err) {
+          currentOut.innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+        }
+      }
+
+      async function fetchHistoricalWeather() {
+        const v = q.value.trim();
+        if (!v) {
+          histOut.innerHTML = '<div class="error">Please enter a location first.</div>';
+          return;
+        }
+        const s = startDate.value;
+        const e = endDate.value;
+        if (!s || !e) {
+          histOut.innerHTML = '<div class="error">Please select both start and end dates.</div>';
+          return;
+        }
+        histOut.innerHTML = '<div class="loading">Loading historical data...</div>';
+        try {
+          const res = await fetch(`/api/weather/historical?location=${encodeURIComponent(v)}&start_date=${s}&end_date=${e}`);
+          const data = await res.json();
+          if (!res.ok) {
+            histOut.innerHTML = '<div class="error">' + JSON.stringify(data, null, 2) + '</div>';
+            return;
+          }
+          const days = data.daily.time.length;
+          const summary = `
+            <div class="summary">
+              <strong>${data.location_name}</strong> | ${days} days (${s} to ${e})<br/>
+              Avg High: ${(data.daily.temperature_2m_max.reduce((a,b)=>a+b,0)/days).toFixed(1)}°C | 
+              Avg Low: ${(data.daily.temperature_2m_min.reduce((a,b)=>a+b,0)/days).toFixed(1)}°C | 
+              Total Precip: ${data.daily.precipitation_sum.reduce((a,b)=>a+b,0).toFixed(1)}mm
+            </div>
+          `;
+          histOut.innerHTML = summary + '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+        } catch (err) {
+          histOut.innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+        }
+      }
+
+      async function fetchFloodRisk() {
+        const v = q.value.trim();
+        if (!v) return;
+        floodOut.innerHTML = '<div class="loading">Loading...</div>';
+        try {
+          const res = await fetch('/api/flood-risk?location=' + encodeURIComponent(v));
+          const data = await res.json();
+          if (!res.ok) {
+            floodOut.innerHTML = '<div class="error">' + JSON.stringify(data, null, 2) + '</div>';
+            return;
+          }
+          const riskClass = 'flood-risk-' + (data.risk_level || 'low');
+          const elevDisp = data.elevation_m ? ` | Elevation: ${data.elevation_m} m` : '';
+          const summary = `
+            <div class="summary">
+              <strong>${data.location_name}</strong>${elevDisp}<br/>
+              Risk Level: <span class="${riskClass}">${data.risk_level || 'unknown'}</span> (Score: ${data.risk_score || 0}/100)<br/>
+              <small>${data.note || ''}</small>
+            </div>
+          `;
+          floodOut.innerHTML = summary + '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+        } catch (err) {
+          floodOut.innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+        }
+      }
+
+      async function fetchFloodRiskByDate() {
+        const v = q.value.trim();
+        if (!v) {
+          floodDateOut.innerHTML = '<div class="error">Please enter a location first.</div>';
+          return;
+        }
+        const d = floodDatePicker.value;
+        if (!d) {
+          floodDateOut.innerHTML = '<div class="error">Please select a date.</div>';
+          return;
+        }
+        floodDateOut.innerHTML = '<div class="loading">Analyzing flood risk for ' + d + '...</div>';
+        try {
+          const res = await fetch(`/api/flood-risk-date?location=${encodeURIComponent(v)}&date=${d}`);
+          const data = await res.json();
+          if (!res.ok) {
+            floodDateOut.innerHTML = '<div class="error">' + JSON.stringify(data, null, 2) + '</div>';
+            return;
+          }
+          const risk = data.flood_risk;
+          const weather = data.weather;
+          const riskLevel = risk.risk_level || 'low';
+          
+          // Format risk badge
+          const riskBadge = `
+            <div class="risk-badge ${riskLevel}">
+              <div style="font-size: 0.9rem; opacity: 0.8;">FLOOD RISK</div>
+              <div style="font-size: 2rem; margin: 0.3rem 0;">${risk.risk_score}/100</div>
+              <div style="font-size: 1.1rem; text-transform: uppercase;">${riskLevel}</div>
+            </div>
+          `;
+          
+          // Format weather grid
+          const weatherGrid = `
+            <div class="weather-grid">
+              <div class="weather-item">
+                <div class="weather-item-label">🌡️ High Temp</div>
+                <div class="weather-item-value">${weather.temperature_max_c}°C</div>
+              </div>
+              <div class="weather-item">
+                <div class="weather-item-label">🌡️ Low Temp</div>
+                <div class="weather-item-value">${weather.temperature_min_c}°C</div>
+              </div>
+              <div class="weather-item">
+                <div class="weather-item-label">🌧️ Rain Today</div>
+                <div class="weather-item-value">${weather.precipitation_mm}mm</div>
+              </div>
+              <div class="weather-item">
+                <div class="weather-item-label">💨 Wind Speed</div>
+                <div class="weather-item-value">${weather.windspeed_max_kmh} km/h</div>
+              </div>
+            </div>
+          `;
+          
+          // Format factors table
+          const factors = risk.factors;
+          const factorsTable = `
+            <table class="factors-table">
+              <thead>
+                <tr>
+                  <th>Risk Factor</th>
+                  <th style="text-align: right;">Points</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="factor-label">Base Location Risk</td>
+                  <td class="factor-value" style="text-align: right;">${factors.base_location_risk}</td>
+                </tr>
+                <tr>
+                  <td class="factor-label">+ Precipitation Today</td>
+                  <td class="factor-value" style="text-align: right;">+${factors.precipitation_today_risk}</td>
+                </tr>
+                <tr>
+                  <td class="factor-label">+ 7-Day Cumulative Rain</td>
+                  <td class="factor-value" style="text-align: right;">+${factors.cumulative_week_risk}</td>
+                </tr>
+                <tr>
+                  <td class="factor-label">+ Water Proximity</td>
+                  <td class="factor-value" style="text-align: right;">+${factors.water_proximity_risk}</td>
+                </tr>
+                <tr>
+                  <td class="factor-label">+ Elevation Risk</td>
+                  <td class="factor-value" style="text-align: right;">+${factors.elevation_risk || 0}</td>
+                </tr>
+                <tr style="background: #f0f0f0; font-weight: bold;">
+                  <td>TOTAL RISK SCORE</td>
+                  <td style="text-align: right;">${risk.risk_score}/100</td>
+                </tr>
+              </tbody>
+            </table>
+          `;
+          
+          // Water body info
+          let waterInfo = '';
+          if (risk.near_water_body) {
+            waterInfo = `
+              <div class="water-body-info active">
+                <strong>⚠️ Near Water Body</strong><br/>
+                Location: <strong>${risk.water_body_name}</strong><br/>
+                This area has additional flood risk due to proximity to water bodies.
+              </div>
+            `;
+          } else {
+            waterInfo = `
+              <div class="water-body-info">
+                <strong>ℹ️ Water Body Status</strong><br/>
+                Not near a major water body. Water proximity risk: <strong>0 points</strong>
+              </div>
+            `;
+          }
+          
+          // Combine all
+          const display = `
+            <div class="risk-card">
+              <div class="risk-header">
+                <div class="location-info">
+                  <h3>${data.location}</h3>
+                  <p>📅 ${d} • ${data.latitude.toFixed(2)}°, ${data.longitude.toFixed(2)}°${data.elevation_m ? ' • ' + data.elevation_m + ' m' : ''}</p>
+                </div>
+                ${riskBadge}
+              </div>
+              
+              <h3 style="margin-top: 0;">Weather Conditions</h3>
+              ${weatherGrid}
+              
+              ${waterInfo}
+              
+              <h3>Flood Risk Calculation</h3>
+              ${factorsTable}
+              
+              <p style="color: #999; font-size: 0.9rem; margin-top: 1rem;">
+                💡 Flood risk is calculated from precipitation patterns and location factors. 
+                For real-time forecasts, consult local authorities or Google Flood Hub.
+              </p>
+            </div>
+          `;
+          
+          floodDateOut.innerHTML = display;
+        } catch (err) {
+          floodDateOut.innerHTML = '<div class="error">Error: ' + err.message + '</div>';
+        }
+      }
+
+      btn.addEventListener('click', () => {
+        fetchCurrentWeather();
+        fetchFloodRisk();
+      });
+
+      histBtn.addEventListener('click', fetchHistoricalWeather);
+      floodDateBtn.addEventListener('click', fetchFloodRiskByDate);
+
+      // Fetch all data when user presses Enter in search
+      q.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          btn.click();
+        }
+      });
+
+      // Camera loader (simple heuristic: try <img> for MJPEG, iframe for others)
+      function loadCameraFeed(url) {
+        if (!url) return;
+        let container = document.getElementById('camera-container');
+        if (!container) {
+          container = document.createElement('div');
+          container.id = 'camera-container';
+          container.style.marginTop = '0.8rem';
+          container.style.border = '1px solid rgba(255,255,255,0.08)';
+          container.style.padding = '0.6rem';
+          container.style.borderRadius = '6px';
+          container.style.background = 'rgba(0,0,0,0.06)';
+          document.getElementById('current').insertBefore(container, currentOut);
+        }
+        // Clear existing
+        container.innerHTML = '';
+        // If URL ends with typical MJPEG or .jpg, show as img
+        if (url.match(/\.(mjpg|mjpeg|jpg|jpeg)$/i) || url.includes('mjpeg')) {
+          const img = document.createElement('img');
+          img.src = url;
+          img.alt = 'Camera feed';
+          img.style.maxWidth = '100%';
+          img.style.borderRadius = '4px';
+          container.appendChild(img);
+          return;
+        }
+        // Try video element for HLS/mp4
+        const video = document.createElement('video');
+        video.controls = true;
+        video.autoplay = true;
+        video.muted = true;
+        video.style.maxWidth = '100%';
+        const source = document.createElement('source');
+        source.src = url;
+        video.appendChild(source);
+        video.onerror = () => {
+          // Fallback to iframe
+          container.innerHTML = '<iframe src="' + url + '" style="width:100%;height:360px;border:none;border-radius:4px;"></iframe>';
+        };
+        container.appendChild(video);
+      }
+
+      cameraLoadBtn.addEventListener('click', () => {
+        const u = cameraUrlInput.value.trim();
+        if (!u) return alert('Please paste a camera URL.');
+        loadCameraFeed(u);
+      });
+    </script>
+  </body>
+</html>
