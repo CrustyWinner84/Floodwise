@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+html = """\
 <!doctype html>
 <html lang="en">
 <head>
@@ -171,7 +173,7 @@
 <script>
 var $s = function(id){ return document.getElementById(id); };
 function kv(label, value) {
-  if (value === null || value === undefined || value === '') value = '—';
+  if (value === null || value === undefined || value === '') value = '\u2014';
   return '<div class="kv-item"><label>' + label + '</label><span>' + value + '</span></div>';
 }
 function setStatus(msg, isErr) {
@@ -181,9 +183,9 @@ function setStatus(msg, isErr) {
 }
 function riskCls(l) { return l==='low'?'risk-low':l==='high'?'risk-high':'risk-moderate'; }
 function fillCls(l) { return l==='low'?'fill-low':l==='high'?'fill-high':'fill-moderate'; }
-function fmtT(c) { return c != null ? (+c).toFixed(1) + ' °C' : '—'; }
-function fmtM(v) { return v != null ? (+v).toFixed(1) + ' mm'  : '—'; }
-function fmtK(v) { return v != null ? (+v).toFixed(1) + ' km/h': '—'; }
+function fmtT(c) { return c != null ? (+c).toFixed(1) + ' \u00b0C' : '\u2014'; }
+function fmtM(v) { return v != null ? (+v).toFixed(1) + ' mm'  : '\u2014'; }
+function fmtK(v) { return v != null ? (+v).toFixed(1) + ' km/h': '\u2014'; }
 
 (function(){
   var d = new Date(), s = d.toISOString().slice(0,10);
@@ -204,9 +206,9 @@ var FACTORS = [
 function renderLocation(d) {
   $s('loc-grid').innerHTML =
     kv('Place',       d.location) +
-    kv('Latitude',    d.latitude  ? (+d.latitude).toFixed(5)  : '—') +
-    kv('Longitude',   d.longitude ? (+d.longitude).toFixed(5) : '—') +
-    kv('Elevation',   d.elevation_m != null ? d.elevation_m + ' m' : '—') +
+    kv('Latitude',    d.latitude  ? (+d.latitude).toFixed(5)  : '\u2014') +
+    kv('Longitude',   d.longitude ? (+d.longitude).toFixed(5) : '\u2014') +
+    kv('Elevation',   d.elevation_m != null ? d.elevation_m + ' m' : '\u2014') +
     kv('Report Date', d.date);
 }
 
@@ -240,7 +242,7 @@ var WMO = {0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog
 function renderCurrent(cw) {
   if (!cw) { $s('cur-grid').innerHTML = '<span class="no-data">Current weather unavailable.</span>'; return; }
   var c = cw.current_weather || cw;
-  $s('cur-grid').innerHTML = kv('Temperature',fmtT(c.temperature||c.temperature_c)) + kv('Wind Speed',fmtK(c.windspeed||c.windspeed_kmh)) + kv('Wind Dir', c.winddirection!=null?c.winddirection+'°':'—') + kv('Condition', c.weathercode!=null?(WMO[c.weathercode]||'Code '+c.weathercode):'—');
+  $s('cur-grid').innerHTML = kv('Temperature',fmtT(c.temperature||c.temperature_c)) + kv('Wind Speed',fmtK(c.windspeed||c.windspeed_kmh)) + kv('Wind Dir', c.winddirection!=null?c.winddirection+'\u00b0':'\u2014') + kv('Condition', c.weathercode!=null?(WMO[c.weathercode]||'Code '+c.weathercode):'\u2014');
 }
 
 function renderDay(wd) {
@@ -271,7 +273,7 @@ function renderFema(fema) {
   var h = '<div style="margin-bottom:0.75rem;font-size:0.88rem;color:#ffaaaa"><strong style="color:#ffdddd">'+(fema.count||fema.events.length)+'</strong> federal flood declarations found'+st+(rl?' &nbsp;&middot;&nbsp; <strong style="color:#fca5a5">'+rl+'</strong>':'')+
     '</div><table class="fema-table"><thead><tr><th>Date</th><th>Declaration</th><th>Area</th><th>State</th></tr></thead><tbody>';
   fema.events.forEach(function(e){
-    h += '<tr><td>'+(e.declarationDate||'').slice(0,10)+'</td><td>'+(e.declarationTitle||e.incidentType||'—')+'</td><td>'+(e.designatedArea||'—')+'</td><td><span class="fema-badge">'+(e.state||'—')+'</span></td></tr>';
+    h += '<tr><td>'+(e.declarationDate||'').slice(0,10)+'</td><td>'+(e.declarationTitle||e.incidentType||'\u2014')+'</td><td>'+(e.designatedArea||'\u2014')+'</td><td><span class="fema-badge">'+(e.state||'\u2014')+'</span></td></tr>';
   });
   el.innerHTML = h+'</tbody></table>';
 }
@@ -284,7 +286,7 @@ function renderUsgs(usgs) {
   }
   var cards = '';
   usgs.gauges.forEach(function(g){
-    var h = g.gage_height_ft!=null?parseFloat(g.gage_height_ft).toFixed(2):'—';
+    var h = g.gage_height_ft!=null?parseFloat(g.gage_height_ft).toFixed(2):'\u2014';
     var dt = g.datetime?g.datetime.replace('T',' ').slice(0,16)+' UTC':'';
     var url = g.url||'https://waterdata.usgs.gov/monitoring-location/'+(g.site_code||'')+'/';
     cards += '<div class="gauge-card"><h4>'+(g.name||'USGS Gauge')+'</h4><div><span class="gauge-height">'+h+'</span><span class="gauge-unit"> ft gage ht</span></div>'+(dt?'<div style="font-size:0.72rem;color:#888;margin-top:0.25rem">'+dt+'</div>':'')+'<a class="gauge-link" href="'+url+'" target="_blank" rel="noopener">View real-time data &nearr;</a></div>';
@@ -327,3 +329,10 @@ $s('q').addEventListener('keydown', function(e){ if(e.key==='Enter') go(); });
 </script>
 </body>
 </html>
+"""
+
+import os
+path = os.path.join(os.path.dirname(__file__), "weather_app", "templates", "index.html")
+with open(path, "w", encoding="utf-8") as f:
+    f.write(html)
+print("OK — wrote", len(html), "bytes to", path)

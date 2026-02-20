@@ -305,6 +305,144 @@ def get_historical_weather(lat: float, lon: float, start_date: str, end_date: st
     }
 
 
+# US State abbreviation lookup (used for FEMA API queries)
+STATE_ABBREVS = {
+    'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
+    'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE',
+    'Florida': 'FL', 'Georgia': 'GA', 'Hawaii': 'HI', 'Idaho': 'ID',
+    'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA', 'Kansas': 'KS',
+    'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+    'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS',
+    'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV',
+    'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY',
+    'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH', 'Oklahoma': 'OK',
+    'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+    'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT',
+    'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV',
+    'Wisconsin': 'WI', 'Wyoming': 'WY', 'District of Columbia': 'DC',
+    'Puerto Rico': 'PR', 'Virgin Islands': 'VI', 'Guam': 'GU',
+}
+
+
+def get_fema_flood_history(lat: float, lon: float):
+    """Query OpenFEMA API for historical flood disaster declarations near a location.
+    Completely free, no API key required.
+    Returns up to 5 most recent flood events and a risk score (0-35).
+    """
+    try:
+        # Reverse geocode to get state name
+        geo_url = 'https://nominatim.openstreetmap.org/reverse'
+        params = {'lat': lat, 'lon': lon, 'format': 'json'}
+        user_agent = os.environ.get('NOMINATIM_USER_AGENT', 'weather-app/1.0 (contact: example@example.com)')
+        resp = requests.get(geo_url, params=params, headers={'User-Agent': user_agent}, timeout=10)
+        resp.raise_for_status()
+        addr = resp.json().get('address', {})
+        state_name = addr.get('state', '')
+        state_abbrev = STATE_ABBREVS.get(state_name, '')
+
+        if not state_abbrev:
+            return {
+                'available': False,
+                'note': 'FEMA historical data only available for US locations.',
+                'events': [],
+                'historical_risk_score': 0
+            }
+
+        # Query OpenFEMA for flood disasters in this state
+        fema_url = 'https://www.fema.gov/api/open/v2/disasterDeclarationsSummaries'
+        fema_params = {
+            '$filter': f"state eq '{state_abbrev}' and incidentType eq 'Flood'",
+            '$orderby': 'declarationDate desc',
+            '$top': 10,
+            '$select': 'disasterNumber,declarationDate,declarationTitle,incidentType,state,designatedArea,incidentBeginDate,incidentEndDate'
+        }
+        fema_resp = requests.get(fema_url, params=fema_params, timeout=15)
+        fema_resp.raise_for_status()
+        events = fema_resp.json().get('DisasterDeclarationsSummaries', [])
+
+        # Count events in last 5 years for scoring
+        cutoff = (datetime.utcnow() - timedelta(days=5 * 365)).strftime('%Y-%m-%d')
+        recent = [e for e in events if (e.get('declarationDate') or '') >= cutoff]
+        hist_score = min(35, len(recent) * 7)
+
+        return {
+            'available': True,
+            'state': state_name,
+            'state_abbrev': state_abbrev,
+            'total_flood_declarations': len(events),
+            'recent_5yr_count': len(recent),
+            'historical_risk_score': hist_score,
+            'events': events[:5]
+        }
+    except Exception as e:
+        logger.debug('FEMA flood history lookup failed: %s', e)
+        return {'available': False, 'events': [], 'historical_risk_score': 0, 'note': str(e)}
+
+
+def get_usgs_stream_gauge(lat: float, lon: float):
+    """Query USGS Water Services for nearby real-time stream gauge data.
+    Completely free, no API key required. US only.
+    Returns up to 3 nearby gauges and a live gauge risk score (0-35).
+    """
+    try:
+        # Search within ~0.5 degree bounding box
+        bbox = f'{lon - 0.5},{lat - 0.5},{lon + 0.5},{lat + 0.5}'
+        url = 'https://waterservices.usgs.gov/nwis/iv/'
+        params = {
+            'format': 'json',
+            'bBox': bbox,
+            'parameterCd': '00065',  # Gage height in feet
+            'siteStatus': 'active',
+        }
+        resp = requests.get(url, params=params, timeout=15)
+        resp.raise_for_status()
+        ts = resp.json().get('value', {}).get('timeSeries', [])
+
+        if not ts:
+            return {
+                'available': False,
+                'note': 'No USGS stream gauges found nearby (may be outside USA or no active gauges).',
+                'gauges': [],
+                'gauge_risk_score': 0
+            }
+
+        gauges = []
+        for site in ts[:3]:
+            info = site.get('sourceInfo', {})
+            site_code = (info.get('siteCode') or [{}])[0].get('value', '')
+            values = (site.get('values') or [{}])[0].get('value', [])
+            latest = values[-1] if values else {}
+            gauges.append({
+                'name': info.get('siteName', 'Unknown Station'),
+                'site_code': site_code,
+                'gage_height_ft': latest.get('value'),
+                'reading_time': latest.get('dateTime', ''),
+                'chart_url': f'https://waterdata.usgs.gov/monitoring-location/{site_code}/#parameterCode=00065&period=P7D'
+            })
+
+        # Score based on first gauge height
+        gauge_score = 0
+        try:
+            h = float(gauges[0]['gage_height_ft'] or 0)
+            if h > 15:
+                gauge_score = 35
+            elif h > 8:
+                gauge_score = 20
+            elif h > 3:
+                gauge_score = 10
+        except Exception:
+            pass
+
+        return {
+            'available': True,
+            'gauges': gauges,
+            'gauge_risk_score': gauge_score
+        }
+    except Exception as e:
+        logger.debug('USGS stream gauge lookup failed: %s', e)
+        return {'available': False, 'gauges': [], 'gauge_risk_score': 0, 'note': str(e)}
+
+
 def get_flood_risk(lat: float, lon: float):
     """Fetch flood risk data. Currently returns a placeholder with flood risk zone.
     A real implementation would call the Google Flood Hub API or local flood APIs.
@@ -315,15 +453,15 @@ def get_flood_risk(lat: float, lon: float):
         # Simple heuristic: areas near coastlines or rivers have higher flood risk
         # This is just a placeholder; real flood data requires dedicated APIs
         risk_level = 'low'
-        risk_score = 20  # 0-100 scale
+        risk_score = 15  # 0-50 scale (base only)
         
         # Very simple mock: if near certain latitudes/longitudes, increase risk
         if (lat > 40 and lat < 52) and (lon > -10 and lon < 40):  # EU flood-prone areas
             risk_level = 'moderate'
-            risk_score = 45
+            risk_score = 30
         if (lat > 25 and lat < 35) and (lon > 70 and lon < 90):  # South Asia monsoon zone
             risk_level = 'high'
-            risk_score = 70
+            risk_score = 50
         
         return {
             'latitude': lat,
@@ -359,78 +497,92 @@ def is_near_water_body(lat: float, lon: float):
     return False, None
 
 
-def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_data: dict, elevation_m=None):
-    """Calculate flood risk for a specific date considering precipitation and location."""
+def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_data: dict,
+                                   elevation_m=None, fema_data=None, usgs_data=None):
+    """Calculate flood risk for a specific date.
+    Factors (max pts / % of 220 uncapped total):
+      Base location risk   : 50 pts (22.7%)
+      Precipitation today  : 30 pts (13.6%)
+      7-day cumulative     : 25 pts (11.4%)
+      Water body proximity : 25 pts (11.4%)
+      Elevation            : 20 pts  (9.1%)
+      FEMA historical      : 35 pts (15.9%)
+      USGS live gauge      : 35 pts (15.9%)
+      Total uncapped: 220  -> capped at 100
+    """
     try:
-        # Find the index for this date
         times = daily_data.get('time', [])
         precip = daily_data.get('precipitation_sum', [])
-        
+
         if date_str not in times:
             return None
-        
+
         date_idx = times.index(date_str)
         precip_today = precip[date_idx] if date_idx < len(precip) else 0
-        
-        # Base risk from location
+
+        # Base risk from location (max 50)
         base_risk = get_flood_risk(lat, lon)
-        base_score = base_risk.get('risk_score', 20)
-        
-        # Calculate cumulative precipitation (last 7 days up to this date)
+        base_score = base_risk.get('risk_score', 15)
+
+        # 7-day cumulative precipitation
         window_start = max(0, date_idx - 6)
-        cumulative_precip = sum(precip[window_start:date_idx+1])
-        
-        # Check water body proximity
+        cumulative_precip = sum(precip[window_start:date_idx + 1])
+
+        # Water body proximity (max 25)
         near_water, water_name = is_near_water_body(lat, lon)
-        
-        # Calculate risk increase from precipitation
+
+        # Today's precipitation (max 30)
         precip_risk_factor = 0
-        if precip_today > 50:  # Heavy rain
+        if precip_today > 50:
             precip_risk_factor = 30
-        elif precip_today > 20:  # Moderate rain
+        elif precip_today > 20:
             precip_risk_factor = 15
-        elif precip_today > 5:  # Light rain
+        elif precip_today > 5:
             precip_risk_factor = 5
-        
-        # Cumulative effect (7-day rainfall)
+
+        # 7-day cumulative (max 25)
         cumulative_risk_factor = 0
-        if cumulative_precip > 150:  # Very wet week
+        if cumulative_precip > 150:
             cumulative_risk_factor = 25
-        elif cumulative_precip > 80:  # Wet week
+        elif cumulative_precip > 80:
             cumulative_risk_factor = 15
-        elif cumulative_precip > 40:  # Moderate week
+        elif cumulative_precip > 40:
             cumulative_risk_factor = 5
-        
-        # Water body proximity (25% weightage = 25 points)
+
+        # Water proximity (max 25)
         water_proximity_risk = 25 if near_water else 0
 
-        # Elevation effect: lower elevations increase flood risk
+        # Elevation (max 20)
         elevation_risk = 0
         try:
             if elevation_m is not None:
                 e = float(elevation_m)
                 if e < 5:
-                    elevation_risk = 15
+                    elevation_risk = 20
                 elif e < 20:
-                    elevation_risk = 10
+                    elevation_risk = 13
                 elif e < 50:
-                    elevation_risk = 5
-                else:
-                    elevation_risk = 0
+                    elevation_risk = 7
         except Exception:
-            elevation_risk = 0
-        
-        # Calculate final risk score
-        final_score = min(100, base_score + precip_risk_factor + cumulative_risk_factor + water_proximity_risk + elevation_risk)
-        
-        # Determine risk level
+            pass
+
+        # FEMA historical flood declarations (max 35)
+        fema_risk = (fema_data or {}).get('historical_risk_score', 0)
+
+        # USGS live stream gauge (max 35)
+        usgs_risk = (usgs_data or {}).get('gauge_risk_score', 0)
+
+        # Final score capped at 100
+        final_score = min(100, base_score + precip_risk_factor + cumulative_risk_factor
+                         + water_proximity_risk + elevation_risk + fema_risk + usgs_risk)
+
         if final_score < 30:
             risk_level = 'low'
         elif final_score < 60:
             risk_level = 'moderate'
         else:
             risk_level = 'high'
-        
+
         return {
             'date': date_str,
             'risk_level': risk_level,
@@ -446,10 +598,12 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
                 'cumulative_week_risk': cumulative_risk_factor,
                 'water_proximity_risk': water_proximity_risk,
                 'elevation_risk': elevation_risk,
+                'fema_historical_risk': fema_risk,
+                'usgs_gauge_risk': usgs_risk,
             },
-            'note': 'Flood risk calculated from precipitation patterns and location factors. For real-time forecasts, consult local authorities or Google Flood Hub.'
+            'note': 'Flood risk calculated from precipitation, location, FEMA historical events, and live USGS gauge data.'
         }
-    except Exception as e:
+    except Exception:
         logger.exception('Error calculating flood risk for date')
         return None
 
@@ -757,8 +911,17 @@ def api_flood_risk_date():
             'windspeed_max_kmh': daily.get('windspeed_10m_max', [None])[date_idx],
         }
         
-        # Calculate flood risk for this date (include elevation)
-        flood_risk_that_day = calculate_flood_risk_for_date(lat, lon, date_str, daily, elevation_m=elevation)
+        # Fetch FEMA historical flood declarations and USGS live gauge (non-fatal)
+        fema_data = get_fema_flood_history(lat, lon)
+        usgs_data = get_usgs_stream_gauge(lat, lon)
+
+        # Calculate flood risk for this date (include elevation + FEMA + USGS)
+        flood_risk_that_day = calculate_flood_risk_for_date(
+            lat, lon, date_str, daily,
+            elevation_m=elevation,
+            fema_data=fema_data,
+            usgs_data=usgs_data
+        )
         
         if not flood_risk_that_day:
             return jsonify({'error': 'could not calculate flood risk for this date'}), 500
@@ -770,7 +933,9 @@ def api_flood_risk_date():
             'elevation_m': elevation,
             'date': date_str,
             'weather': weather_that_day,
-            'flood_risk': flood_risk_that_day
+            'flood_risk': flood_risk_that_day,
+            'fema_history': fema_data,
+            'usgs_gauges': usgs_data,
         })
     
     except requests.HTTPError as e:
@@ -779,6 +944,125 @@ def api_flood_risk_date():
     except Exception as e:
         logger.exception('Unexpected error in date-based flood risk')
         return jsonify({'error': 'flood risk calculation failed', 'detail': str(e)}), 500
+
+@app.route('/api/full-report')
+def api_full_report():
+    """Single endpoint: geocode + current weather + 30-day history + FEMA + USGS + flood risk.
+    Parameters:
+      - location: place name or address
+      - date:     YYYY-MM-DD  (defaults to today)
+    """
+    from datetime import datetime, timedelta
+
+    location = request.args.get('location') or request.args.get('q', '').strip()
+    date_str  = request.args.get('date', '').strip()
+
+    if not location:
+        return jsonify({'error': 'missing "location" parameter'}), 400
+
+    if not date_str:
+        date_str = datetime.utcnow().strftime('%Y-%m-%d')
+
+    try:
+        datetime.strptime(date_str, '%Y-%m-%d')
+    except ValueError:
+        return jsonify({'error': 'invalid date format, use YYYY-MM-DD'}), 400
+
+    # 1. Geocode
+    try:
+        geo = geocode(location)
+    except Exception as e:
+        return jsonify({'error': 'geocoding failed', 'detail': str(e)}), 500
+
+    if not geo:
+        return jsonify({'error': 'location not found',
+                        'hint': 'Try a city name, country, or street address.'}), 404
+
+    lat, lon, display_name, elevation = geo
+
+    # 2. Current weather (non-fatal)
+    try:
+        current_weather = get_weather(lat, lon)
+    except Exception:
+        current_weather = None
+
+    # 3. Historical weather — 30-day window centred on target date
+    try:
+        target_date     = datetime.strptime(date_str, '%Y-%m-%d')
+        hist_start      = (target_date - timedelta(days=15)).strftime('%Y-%m-%d')
+        hist_end        = (target_date + timedelta(days=15)).strftime('%Y-%m-%d')
+        historical_data = get_historical_weather(lat, lon, hist_start, hist_end)
+    except Exception:
+        historical_data = None
+
+    # 4. Weather on the specific date
+    weather_that_day = None
+    daily            = {}
+    if historical_data and 'daily' in historical_data:
+        daily = historical_data['daily']
+        times = daily.get('time', [])
+        if date_str in times:
+            idx = times.index(date_str)
+            weather_that_day = {
+                'date':               date_str,
+                'temperature_max_c':  daily.get('temperature_2m_max',  [None])[idx],
+                'temperature_min_c':  daily.get('temperature_2m_min',  [None])[idx],
+                'precipitation_mm':   daily.get('precipitation_sum',   [None])[idx],
+                'windspeed_max_kmh':  daily.get('windspeed_10m_max',   [None])[idx],
+            }
+
+    # 5. FEMA historical flood data (non-fatal)
+    try:
+        fema_data = get_fema_flood_history(lat, lon)
+    except Exception:
+        fema_data = {'events': [], 'historical_risk_score': 0}
+
+    # 6. USGS live stream gauge (non-fatal)
+    try:
+        usgs_data = get_usgs_stream_gauge(lat, lon)
+    except Exception:
+        usgs_data = {'gauges': [], 'gauge_risk_score': 0}
+
+    # 7. Flood risk score
+    flood_risk = None
+    if daily and date_str in daily.get('time', []):
+        flood_risk = calculate_flood_risk_for_date(
+            lat, lon, date_str, daily,
+            elevation_m=elevation,
+            fema_data=fema_data,
+            usgs_data=usgs_data,
+        )
+
+    # 8. Build Windy embed URL (precipitation overlay)
+    windy_url = (
+        f"https://embed.windy.com/embed2.html"
+        f"?lat={lat}&lon={lon}&detailLat={lat}&detailLon={lon}"
+        f"&width=650&height=380&zoom=9&level=surface&overlay=rain"
+        f"&product=ecmwf&menu=&message=&marker=true&calendar=now"
+        f"&pressure=&type=map&location=coordinates&detail="
+        f"&metricWind=default&metricTemp=default&radarRange=-1"
+    )
+
+    return jsonify({
+        'location':        display_name,
+        'latitude':        lat,
+        'longitude':       lon,
+        'elevation_m':     elevation,
+        'date':            date_str,
+        'current_weather': current_weather,
+        'weather_on_date': weather_that_day,
+        'historical_daily': {
+            'time':                daily.get('time', []),
+            'precipitation_sum':   daily.get('precipitation_sum', []),
+            'temperature_2m_max':  daily.get('temperature_2m_max', []),
+            'temperature_2m_min':  daily.get('temperature_2m_min', []),
+        },
+        'flood_risk':  flood_risk,
+        'fema_history': fema_data,
+        'usgs_gauges':  usgs_data,
+        'windy_embed_url': windy_url,
+    })
+
 
 @app.route('/health')
 def health():
