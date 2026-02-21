@@ -69,11 +69,24 @@ def get_elevation(lat: float, lon: float):
     except Exception:
         logger.debug('OpenTopography lookup skipped or failed')
 
-    # 2) Try Open-Elevation (public) as before
+    # 2) Open-Meteo elevation API — fast and reliable (same CDN as weather API)
+    try:
+        url = 'https://api.open-meteo.com/v1/elevation'
+        params = {'latitude': lat, 'longitude': lon}
+        resp = requests.get(url, params=params, timeout=5)
+        resp.raise_for_status()
+        data = resp.json()
+        elevs = data.get('elevation', [])
+        if elevs and elevs[0] is not None:
+            return float(elevs[0])
+    except Exception:
+        logger.debug('Open-Meteo elevation API failed for %s,%s', lat, lon)
+
+    # 3) Last-resort: Open-Elevation public API (can be slow or unreliable)
     try:
         url = 'https://api.open-elevation.com/api/v1/lookup'
         params = {'locations': f'{lat},{lon}'}
-        resp = requests.get(url, params=params, timeout=10)
+        resp = requests.get(url, params=params, timeout=4)
         resp.raise_for_status()
         data = resp.json()
         results = data.get('results') or []
@@ -84,22 +97,6 @@ def get_elevation(lat: float, lon: float):
     except Exception:
         logger.debug('Open-Elevation lookup failed for %s,%s', lat, lon)
 
-    # 3) Fallback: try Open-Meteo geocoding elevation via their geocoding API (best-effort)
-    try:
-        g_url = 'https://geocoding-api.open-meteo.com/v1/search'
-        g_params = {'name': f'{lat},{lon}', 'count': 1}
-        g_resp = requests.get(g_url, params=g_params, timeout=10)
-        g_resp.raise_for_status()
-        g_data = g_resp.json()
-        results = g_data.get('results') or []
-        if results:
-            elev = results[0].get('elevation')
-            if elev is not None:
-                return float(elev)
-    except Exception:
-        logger.debug('Open-Meteo geocode-elevation fallback failed for %s,%s', lat, lon)
-
-    # If all else fails, return None to indicate unknown elevation
     return None
 
 
@@ -229,7 +226,22 @@ def geocode(location: str):
 
         return None
 
-    # Try the original location
+    # Expand US state abbreviations: "Snohomish, WA" → "Snohomish, Washington"
+    # Handles "City, ST" and "City, ST ZIPCODE" so both Nominatim and Open-Meteo succeed.
+    _loc_parts = [p.strip() for p in location.split(',')]
+    if len(_loc_parts) >= 2:
+        _last_words = _loc_parts[-1].strip().split()
+        _abbrev_to_state = {v: k for k, v in STATE_ABBREVS.items()}
+        if _last_words and _last_words[0].upper() in _abbrev_to_state:
+            _state_full = _abbrev_to_state[_last_words[0].upper()]
+            _remaining  = ' '.join(_last_words[1:])
+            _loc_parts[-1] = (f'{_state_full} {_remaining}').strip() if _remaining else _state_full
+            _expanded = ', '.join(_loc_parts)
+            if _expanded != location:
+                logger.info('Expanded state abbreviation: "%s" → "%s"', location, _expanded)
+                location = _expanded
+
+    # Try the original location (possibly with expanded state name)
     result = try_geocode_with_query(location)
     if result:
         logger.info('Geocoded with original query: "%s"', location)
@@ -980,20 +992,37 @@ def api_full_report():
 
     lat, lon, display_name, elevation = geo
 
-    # 2. Current weather (non-fatal)
-    try:
-        current_weather = get_weather(lat, lon)
-    except Exception:
-        current_weather = None
+    # 2–6. Compute date window, then fetch weather / history / FEMA / USGS in parallel.
+    target_date = datetime.strptime(date_str, '%Y-%m-%d')
+    hist_start  = (target_date - timedelta(days=15)).strftime('%Y-%m-%d')
+    hist_end    = (target_date + timedelta(days=15)).strftime('%Y-%m-%d')
 
-    # 3. Historical weather — 30-day window centred on target date
-    try:
-        target_date     = datetime.strptime(date_str, '%Y-%m-%d')
-        hist_start      = (target_date - timedelta(days=15)).strftime('%Y-%m-%d')
-        hist_end        = (target_date + timedelta(days=15)).strftime('%Y-%m-%d')
-        historical_data = get_historical_weather(lat, lon, hist_start, hist_end)
-    except Exception:
-        historical_data = None
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        f_weather = pool.submit(get_weather, lat, lon)
+        f_hist    = pool.submit(get_historical_weather, lat, lon, hist_start, hist_end)
+        f_fema    = pool.submit(get_fema_flood_history, lat, lon)
+        f_usgs    = pool.submit(get_usgs_stream_gauge, lat, lon)
+
+        try:
+            current_weather = f_weather.result()
+        except Exception:
+            current_weather = None
+
+        try:
+            historical_data = f_hist.result()
+        except Exception:
+            historical_data = None
+
+        try:
+            fema_data = f_fema.result()
+        except Exception:
+            fema_data = {'events': [], 'historical_risk_score': 0}
+
+        try:
+            usgs_data = f_usgs.result()
+        except Exception:
+            usgs_data = {'gauges': [], 'gauge_risk_score': 0}
 
     # 4. Weather on the specific date
     weather_that_day = None
@@ -1010,18 +1039,6 @@ def api_full_report():
                 'precipitation_mm':   daily.get('precipitation_sum',   [None])[idx],
                 'windspeed_max_kmh':  daily.get('windspeed_10m_max',   [None])[idx],
             }
-
-    # 5. FEMA historical flood data (non-fatal)
-    try:
-        fema_data = get_fema_flood_history(lat, lon)
-    except Exception:
-        fema_data = {'events': [], 'historical_risk_score': 0}
-
-    # 6. USGS live stream gauge (non-fatal)
-    try:
-        usgs_data = get_usgs_stream_gauge(lat, lon)
-    except Exception:
-        usgs_data = {'gauges': [], 'gauge_risk_score': 0}
 
     # 7. Flood risk score
     flood_risk = None
