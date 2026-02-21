@@ -673,6 +673,173 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
         return None
 
 
+# ---------------------------------------------------------------------------
+# Evacuation Route Engine
+# ---------------------------------------------------------------------------
+
+def bearing_to_compass(degrees: float) -> str:
+    """Convert a bearing (0–360°) to a human-readable compass direction."""
+    dirs = ['North', 'Northeast', 'East', 'Southeast', 'South', 'Southwest', 'West', 'Northwest']
+    return dirs[round(float(degrees) / 45) % 8]
+
+
+def get_evacuation_routes(lat: float, lon: float, elevation_m: float = None):
+    """Compute up to 3 road-based evacuation routes away from a flood-risk location.
+
+    Algorithm
+    ---------
+    1. Scatter 24 candidate destinations (8 compass directions × 3 distances).
+    2. Fetch their elevations in one Open-Meteo batch call.
+    3. Score each candidate: reward elevation gain, penalise awkward distances.
+    4. Choose the top 3 candidates that are ≥60° apart (spread coverage).
+    5. Route each via OSRM (free, no API key) for real road geometry + steps.
+
+    Returns a list of up to 3 route dicts.
+    """
+    import math
+
+    origin_elev = float(elevation_m) if elevation_m is not None else 0.0
+    R = 6371.0  # Earth radius km
+
+    # 1. Generate 24 candidate destinations (8 directions × 3 distances)
+    distances_km = [8, 14, 22]
+    bearings_deg = list(range(0, 360, 45))
+    candidates = []
+    for dist in distances_km:
+        for bearing in bearings_deg:
+            b_r = math.radians(bearing)
+            lat_r = math.radians(lat)
+            lon_r = math.radians(lon)
+            d_r = dist / R
+            dest_lat_r = math.asin(
+                math.sin(lat_r) * math.cos(d_r) +
+                math.cos(lat_r) * math.sin(d_r) * math.cos(b_r)
+            )
+            dest_lon_r = lon_r + math.atan2(
+                math.sin(b_r) * math.sin(d_r) * math.cos(lat_r),
+                math.cos(d_r) - math.sin(lat_r) * math.sin(dest_lat_r)
+            )
+            candidates.append({
+                'lat': math.degrees(dest_lat_r),
+                'lon': math.degrees(dest_lon_r),
+                'dist_km': dist,
+                'bearing': bearing,
+                'elevation_m': None,
+                'score': 0.0,
+            })
+
+    # 2. Batch elevation lookup — single Open-Meteo request for all 24 points
+    lats_str = ','.join(f'{c["lat"]:.5f}' for c in candidates)
+    lons_str = ','.join(f'{c["lon"]:.5f}' for c in candidates)
+    try:
+        resp = requests.get(
+            'https://api.open-meteo.com/v1/elevation',
+            params={'latitude': lats_str, 'longitude': lons_str},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        elevs = resp.json().get('elevation') or []
+        for i, e in enumerate(elevs):
+            if i < len(candidates) and e is not None:
+                candidates[i]['elevation_m'] = float(e)
+    except Exception as exc:
+        logger.warning('Batch elevation lookup for evacuation failed: %s', exc)
+
+    # 3. Score: strongly reward elevation gain; sweet-spot distance ~14 km
+    for c in candidates:
+        gain = (c['elevation_m'] or origin_elev) - origin_elev
+        dist_penalty = abs(c['dist_km'] - 14) * 0.4
+        c['score'] = gain * 3.0 - dist_penalty
+
+    # 4. Pick top 3 with ≥60° angular separation (spread-out coverage)
+    candidates.sort(key=lambda c: c['score'], reverse=True)
+    selected: list = []
+    for cand in candidates:
+        if not selected:
+            selected.append(cand)
+        elif len(selected) < 3:
+            min_sep = min(
+                min(abs(cand['bearing'] - s['bearing']),
+                    360 - abs(cand['bearing'] - s['bearing']))
+                for s in selected
+            )
+            if min_sep >= 60:
+                selected.append(cand)
+        if len(selected) >= 3:
+            break
+
+    # Fallback: pad with any remaining unique bearings
+    if len(selected) < 3:
+        seen = {s['bearing'] for s in selected}
+        for cand in candidates:
+            if len(selected) >= 3:
+                break
+            if cand['bearing'] not in seen:
+                selected.append(cand)
+                seen.add(cand['bearing'])
+
+    # 5. Fetch OSRM road routes for selected destinations
+    COLORS = ['#22c55e', '#3b82f6', '#f59e0b']   # green, blue, amber
+    routes = []
+    for idx, dest in enumerate(selected):
+        try:
+            osrm_url = (
+                f'https://router.project-osrm.org/route/v1/driving/'
+                f'{lon:.5f},{lat:.5f};{dest["lon"]:.5f},{dest["lat"]:.5f}'
+                f'?overview=full&geometries=geojson&steps=true&annotations=false'
+            )
+            r = requests.get(osrm_url, timeout=12)
+            r.raise_for_status()
+            osrm = r.json()
+            if osrm.get('code') != 'Ok' or not osrm.get('routes'):
+                continue
+
+            rd = osrm['routes'][0]
+
+            # Parse turn-by-turn steps
+            steps = []
+            for leg in rd.get('legs', []):
+                for step in leg.get('steps', []):
+                    dist_m = step.get('distance', 0)
+                    if dist_m < 50:
+                        continue
+                    mv    = step.get('maneuver', {})
+                    mtype = mv.get('type', 'continue')
+                    mmod  = mv.get('modifier', '')
+                    road  = step.get('name') or 'unnamed road'
+                    if mtype == 'depart':
+                        ab = mv.get('bearing_after', dest['bearing'])
+                        instruction = f'Head {bearing_to_compass(ab)} on {road}'
+                    elif mtype == 'arrive':
+                        instruction = 'Arrive at safe destination'
+                    elif mmod:
+                        instruction = f'{mtype.replace("-", " ").title()} {mmod} onto {road}'
+                    else:
+                        instruction = f'{mtype.replace("-", " ").title()} on {road}'
+                    steps.append({'instruction': instruction, 'distance_m': round(dist_m)})
+
+            elev_gain = round((dest.get('elevation_m') or origin_elev) - origin_elev)
+            routes.append({
+                'label':             chr(65 + idx),   # 'A', 'B', 'C'
+                'color':             COLORS[idx],
+                'direction':         bearing_to_compass(dest['bearing']),
+                'destination': {
+                    'lat':              round(dest['lat'],  5),
+                    'lon':              round(dest['lon'],  5),
+                    'elevation_m':      dest.get('elevation_m'),
+                    'elevation_gain_m': elev_gain,
+                },
+                'road_distance_km':  round(rd['distance'] / 1000, 1),
+                'duration_min':      round(rd['duration'] / 60),
+                'geometry':          rd['geometry'],   # GeoJSON LineString
+                'steps':             steps[:20],
+            })
+        except Exception as exc:
+            logger.warning('OSRM routing failed for evacuation dest %s: %s', dest, exc)
+
+    return routes
+
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -1131,6 +1298,47 @@ def api_full_report():
         'fema_history': fema_data,
         'usgs_gauges':  usgs_data,
         'windy_embed_url': windy_url,
+    })
+
+
+@app.route('/api/evacuation-route')
+def api_evacuation_route():
+    """Compute up to 3 road-based evacuation routes from a flood-risk location.
+
+    Parameters
+    ----------
+    location : str   — place name / address (alternative to lat+lon)
+    lat      : float — latitude  (direct coordinate; skips geocoding)
+    lon      : float — longitude (direct coordinate; skips geocoding)
+    elevation: float — elevation in metres (optional, improves destination scoring)
+    """
+    from datetime import datetime as _dt
+
+    lat      = request.args.get('lat',       type=float)
+    lon      = request.args.get('lon',       type=float)
+    elev     = request.args.get('elevation', type=float)
+    location = request.args.get('location', '').strip()
+
+    if lat is None or lon is None:
+        if not location:
+            return jsonify({'error': 'Provide "location" or "lat"+"lon" parameters'}), 400
+        geo = geocode(location)
+        if not geo:
+            return jsonify({'error': 'location not found',
+                            'hint': 'Try a city name or street address.'}), 404
+        lat, lon, _display, elev = geo
+
+    routes = get_evacuation_routes(lat, lon, elev)
+    if not routes:
+        return jsonify({
+            'error': 'Could not compute evacuation routes',
+            'hint': 'The routing service may be temporarily unavailable. Try again in a moment.',
+        }), 503
+
+    return jsonify({
+        'origin':       {'lat': lat, 'lon': lon, 'elevation_m': elev},
+        'routes':       routes,
+        'generated_at': _dt.utcnow().isoformat() + 'Z',
     })
 
 

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>FloodWise</title>
   <link href="https://fonts.googleapis.com/css2?family=McLaren&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -113,6 +114,39 @@
       .search-row { flex-direction: column; }
       .search-row input, .btn-get { width: 100%; }
     }
+    /* ---- Evacuation Routes ------------------------------------------ */
+    .evac-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
+    .evac-tab-btn {
+      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px; padding: 0.45rem 1.1rem; color: #ffdddd; cursor: pointer;
+      font-family: "McLaren", Arial, sans-serif; font-size: 0.88rem; transition: all .2s;
+    }
+    .evac-tab-btn:hover  { background: rgba(255,255,255,0.15); }
+    .evac-tab-btn.active { background: #8b0000; border-color: #ef4444; color: #fff; }
+    #evac-map { position: relative; z-index: 1; }
+    .evac-summary {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 0.6rem; margin-bottom: 0.85rem;
+    }
+    .evac-stat {
+      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 8px; padding: 0.7rem 0.9rem;
+    }
+    .evac-stat label { display: block; font-size: 0.68rem; color: #ffaaaa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem; }
+    .evac-stat span  { font-size: 1.05rem; color: #fff; }
+    .evac-steps { list-style: none; margin-top: 0.65rem; }
+    .evac-steps li {
+      display: flex; align-items: flex-start; gap: 0.65rem;
+      padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.88rem; color: #ffe8e8;
+    }
+    .evac-steps li:last-child { border-bottom: none; }
+    .step-num {
+      flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+      background: #7f1d1d; display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: bold; color: #fca5a5; margin-top: 1px;
+    }
+    .step-dist { color: #888; font-size: 0.78rem; white-space: nowrap; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -161,6 +195,21 @@
       <div class="section-heading">&#x1F4E1; Live Stream Gauges (USGS)</div>
       <div id="usgs-content"></div>
     </div>
+    <div class="section" id="evac-section" style="display:none">
+      <div class="section-heading">&#x1F6A8; Smart Evacuation Routes</div>
+      <p style="font-size:0.85rem;color:#ffaaaa;margin-bottom:0.9rem">
+        Up to 3 road-based escape routes to higher ground &mdash; scored by elevation gain and computed via OpenStreetMap routing.
+      </p>
+      <div style="margin-bottom:0.75rem">
+        <button class="btn-get" id="btn-evac" style="font-size:0.9rem;padding:0.5rem 1.2rem">&#x1F5FA;&#xFE0F; Generate Evacuation Routes</button>
+        <span id="evac-status" style="color:#ffaaaa;font-size:0.85rem;margin-left:0.75rem"></span>
+      </div>
+      <div id="evac-routes" style="display:none">
+        <div class="evac-tabs" id="evac-tabs"></div>
+        <div id="evac-map" style="height:360px;border-radius:10px;overflow:hidden;border:1px solid rgba(255,255,255,0.12);margin-bottom:1rem;background:#1a1a2e"></div>
+        <div id="evac-detail"></div>
+      </div>
+    </div>
     <div class="section">
       <div class="section-heading">&#x1F5FA;&#xFE0F; Live Precipitation Map (Windy)</div>
       <p style="font-size:0.82rem;color:#ffaaaa;margin-bottom:0.5rem;">Real-time &amp; forecast precipitation overlay</p>
@@ -168,6 +217,7 @@
     </div>
   </div>
 
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 var $s = function(id){ return document.getElementById(id); };
 function kv(label, value) {
@@ -296,6 +346,103 @@ function renderWindy(url) {
   $s('windy-wrap').innerHTML = '<iframe src="'+url+'" allowfullscreen loading="lazy"></iframe>';
 }
 
+// --------------- Evacuation Routes -----------------------------------
+var _curLat = null, _curLon = null, _curElev = null;
+var _evacData = null, _evacMap = null, _evacLayers = [];
+
+function _clearEvacLayers() {
+  if (_evacMap) _evacLayers.forEach(function(l){ _evacMap.removeLayer(l); });
+  _evacLayers = [];
+}
+
+function renderEvacRoute(routes, idx) {
+  document.querySelectorAll('.evac-tab-btn').forEach(function(b, i){ b.classList.toggle('active', i === idx); });
+  var route = routes[idx];
+  _clearEvacLayers();
+  if (_evacMap) {
+    // Draw all routes (inactive = faint, active = bold)
+    routes.forEach(function(r, i) {
+      var coords = r.geometry.coordinates.map(function(c){ return [c[1], c[0]]; });
+      var pl = L.polyline(coords, { color: r.color, weight: i === idx ? 6 : 2, opacity: i === idx ? 0.9 : 0.22 }).addTo(_evacMap);
+      _evacLayers.push(pl);
+    });
+    // Destination marker for active route
+    var d = route.destination;
+    var dIco = L.divIcon({ html: '<div style="background:'+route.color+';width:15px;height:15px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 6px rgba(0,0,0,.6)"></div>', iconSize:[19,19], iconAnchor:[9,9], className:'' });
+    var dm = L.marker([d.lat, d.lon], {icon: dIco}).bindPopup('<b>Safe Zone ' + route.label + '</b><br>' + route.direction + ' &middot; ' + route.road_distance_km + ' km' + (d.elevation_m ? '<br>Elev: ' + Math.round(d.elevation_m) + ' m' + (d.elevation_gain_m > 0 ? ' (+' + d.elevation_gain_m + ' m)' : '') : '')).addTo(_evacMap);
+    _evacLayers.push(dm);
+    // Fit to active route
+    _evacMap.fitBounds(L.polyline(route.geometry.coordinates.map(function(c){ return [c[1],c[0]]; })).getBounds(), {padding:[30,30]});
+  }
+  // Stats
+  var dest = route.destination;
+  var gainStr = dest.elevation_gain_m > 0 ? '+' + dest.elevation_gain_m + ' m' : dest.elevation_gain_m < 0 ? dest.elevation_gain_m + ' m' : '~flat';
+  var stepsHtml = '';
+  if (route.steps && route.steps.length) {
+    stepsHtml = '<strong style="font-size:0.85rem;color:#ffdddd">Turn-by-Turn Directions</strong><ul class="evac-steps">';
+    route.steps.forEach(function(s, i){
+      var distLabel = s.distance_m >= 1000 ? (s.distance_m/1000).toFixed(1)+' km' : s.distance_m+' m';
+      stepsHtml += '<li><div class="step-num">' + (i+1) + '</div><div><div>' + s.instruction + '</div><div class="step-dist">' + distLabel + '</div></div></li>';
+    });
+    stepsHtml += '</ul>';
+  }
+  $s('evac-detail').innerHTML =
+    '<div class="evac-summary">' +
+      '<div class="evac-stat"><label>Direction</label><span>' + route.direction + '</span></div>' +
+      '<div class="evac-stat"><label>Road Distance</label><span>' + route.road_distance_km + ' km</span></div>' +
+      '<div class="evac-stat"><label>Drive Time</label><span>~' + route.duration_min + ' min</span></div>' +
+      '<div class="evac-stat"><label>Elev. Gain</label><span>' + gainStr + '</span></div>' +
+    '</div>' + stepsHtml;
+}
+
+async function loadEvacRoutes() {
+  if (!_curLat || !_curLon) return;
+  var btn = $s('btn-evac'), stEl = $s('evac-status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>Computing routes&hellip;';
+  stEl.textContent = '';
+  try {
+    var url = '/api/evacuation-route?lat=' + _curLat + '&lon=' + _curLon + (_curElev != null ? '&elevation=' + _curElev : '');
+    var res = await fetch(url);
+    var data = await res.json();
+    if (!res.ok || !data.routes || !data.routes.length) {
+      stEl.textContent = (data.error || 'Could not compute routes') + '. Try again.';
+      return;
+    }
+    _evacData = data.routes;
+    // Build tabs
+    var tabsHtml = '';
+    data.routes.forEach(function(r, i){
+      tabsHtml += '<button class="evac-tab-btn' + (i===0?' active':'') + '" onclick="renderEvacRoute(_evacData,' + i + ')">'
+        + '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+r.color+';margin-right:6px;vertical-align:middle"></span>'
+        + 'Route ' + r.label + ' &mdash; ' + r.direction + '</button>';
+    });
+    $s('evac-tabs').innerHTML = tabsHtml;
+    $s('evac-routes').style.display = 'block';
+    // Init Leaflet map (once)
+    if (!_evacMap) {
+      _evacMap = L.map('evac-map', {zoomControl:true}).setView([_curLat, _curLon], 11);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains:'abcd', maxZoom:19
+      }).addTo(_evacMap);
+      // Origin pin
+      var oIco = L.divIcon({ html: '<div style="background:#ef4444;width:17px;height:17px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 8px rgba(0,0,0,.7)"></div>', iconSize:[23,23], iconAnchor:[11,11], className:'' });
+      L.marker([_curLat, _curLon], {icon: oIco}).bindPopup('<b>Your Location</b><br>Flood Risk Zone').addTo(_evacMap);
+    } else {
+      _evacMap.invalidateSize();
+    }
+    renderEvacRoute(data.routes, 0);
+    stEl.textContent = data.routes.length + ' route(s) computed.';
+  } catch(e) {
+    stEl.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '&#x1F5FA;&#xFE0F; Regenerate Routes';
+  }
+}
+// -----------------------------------------------------------------------
+
 async function go() {
   var q = $s('q').value.trim(), date = $s('date-picker').value.trim();
   if (!q) { setStatus('Please enter a place name.', true); return; }
@@ -315,6 +462,17 @@ async function go() {
     renderFema(data.fema_history);
     renderUsgs(data.usgs_gauges);
     if (data.windy_embed_url) renderWindy(data.windy_embed_url);
+    // Stash coords for evacuation route engine
+    _curLat = data.latitude; _curLon = data.longitude; _curElev = data.elevation_m;
+    // Reset evacuation panel for new location
+    _evacData = null;
+    if (_evacMap) { _evacMap.remove(); _evacMap = null; }
+    _evacLayers = [];
+    $s('evac-tabs').innerHTML = ''; $s('evac-detail').innerHTML = '';
+    $s('evac-routes').style.display = 'none';
+    $s('btn-evac').innerHTML = '&#x1F5FA;&#xFE0F; Generate Evacuation Routes';
+    $s('evac-status').textContent = '';
+    $s('evac-section').style.display = 'block';
     $s('results').style.display = 'block';
     $s('results').scrollIntoView({behavior:'smooth',block:'start'});
     setStatus('');
@@ -324,6 +482,7 @@ async function go() {
 
 $s('btn-get').addEventListener('click', go);
 $s('q').addEventListener('keydown', function(e){ if(e.key==='Enter') go(); });
+$s('btn-evac').addEventListener('click', loadEvacRoutes);
 </script>
 </body>
 </html>
