@@ -177,11 +177,17 @@ def geocode(location: str):
         return None
 
     def try_geocode_with_query(query_str):
-        """Try geocoding with a given query string. Open-Meteo first (fast), Nominatim fallback."""
-        # Primary: Open-Meteo geocoding API — fast (~1s), returns elevation, no rate-limit concerns
+        """Try geocoding with a given query string.
+        Order: Open-Meteo → Nominatim → Photon (Komoot).
+        """
+        # Open-Meteo geocoding only understands plain city names, not "City, State" strings.
+        # Use just the first comma-delimited segment for the Open-Meteo lookup.
+        om_city = query_str.split(',')[0].strip() if ',' in query_str else query_str
+
+        # Primary: Open-Meteo geocoding API — fast (~1s), no API key, no rate-limit concerns
         try:
             g_url = 'https://geocoding-api.open-meteo.com/v1/search'
-            g_params = {'name': query_str, 'count': 1}
+            g_params = {'name': om_city, 'count': 1}
             g_resp = requests.get(g_url, params=g_params, timeout=8)
             g_resp.raise_for_status()
             g_data = g_resp.json()
@@ -197,15 +203,18 @@ def geocode(location: str):
                 if item.get('country'):
                     display_parts.append(item['country'])
                 display = ', '.join(p for p in display_parts if p)
-                # Open-Meteo already provides elevation — no extra API call needed
+                # Open-Meteo geocoding response already includes elevation
                 elev = item.get('elevation')
                 if elev is None:
-                    elev = get_elevation(lat, lon)
+                    try:
+                        elev = get_elevation(lat, lon)
+                    except Exception:
+                        elev = None
                 return lat, lon, display, elev
         except Exception:
-            logger.debug('Open-Meteo geocoding failed for "%s"', query_str)
+            logger.debug('Open-Meteo geocoding failed for "%s"', om_city)
 
-        # Fallback: Nominatim (richer display names, but can be slow from cloud IPs)
+        # Fallback 1: Nominatim (blocked with 403 from many cloud IPs, but try anyway)
         try:
             url = 'https://nominatim.openstreetmap.org/search'
             params = {'q': query_str, 'format': 'json', 'limit': 1}
@@ -219,7 +228,10 @@ def geocode(location: str):
                 lat = float(item['lat'])
                 lon = float(item['lon'])
                 display = item.get('display_name')
-                elev = get_elevation(lat, lon)
+                try:
+                    elev = get_elevation(lat, lon)
+                except Exception:
+                    elev = None
                 return lat, lon, display, elev
         except requests.HTTPError as e:
             if e.response.status_code == 403:
@@ -228,6 +240,30 @@ def geocode(location: str):
                 logger.warning('Nominatim geocoding failed for "%s": %s', query_str, e)
         except Exception:
             logger.debug('Nominatim geocoding failed for "%s"', query_str)
+
+        # Fallback 2: Photon by Komoot — free, no API key, OpenStreetMap-backed
+        try:
+            p_resp = requests.get(
+                'https://photon.komoot.io/api/',
+                params={'q': query_str, 'limit': 1},
+                timeout=6,
+            )
+            p_resp.raise_for_status()
+            features = p_resp.json().get('features', [])
+            if features:
+                coords = features[0]['geometry']['coordinates']  # [lon, lat]
+                p_lon = float(coords[0])
+                p_lat = float(coords[1])
+                props = features[0].get('properties', {})
+                display_parts = [props.get('name', ''), props.get('state', ''), props.get('country', '')]
+                display = ', '.join(p for p in display_parts if p)
+                try:
+                    elev = get_elevation(p_lat, p_lon)
+                except Exception:
+                    elev = None
+                return p_lat, p_lon, display, elev
+        except Exception:
+            logger.debug('Photon geocoding failed for "%s"', query_str)
 
         return None
 
