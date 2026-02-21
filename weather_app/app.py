@@ -177,14 +177,41 @@ def geocode(location: str):
         return None
 
     def try_geocode_with_query(query_str):
-        """Try geocoding with a given query string using both services."""
-        # Primary: Nominatim
+        """Try geocoding with a given query string. Open-Meteo first (fast), Nominatim fallback."""
+        # Primary: Open-Meteo geocoding API — fast (~1s), returns elevation, no rate-limit concerns
+        try:
+            g_url = 'https://geocoding-api.open-meteo.com/v1/search'
+            g_params = {'name': query_str, 'count': 1}
+            g_resp = requests.get(g_url, params=g_params, timeout=8)
+            g_resp.raise_for_status()
+            g_data = g_resp.json()
+            results = g_data.get('results') or []
+            if results:
+                item = results[0]
+                lat = float(item['latitude'])
+                lon = float(item['longitude'])
+                # Build a readable display name
+                display_parts = [item.get('name', '')]
+                if item.get('admin1'):
+                    display_parts.append(item['admin1'])
+                if item.get('country'):
+                    display_parts.append(item['country'])
+                display = ', '.join(p for p in display_parts if p)
+                # Open-Meteo already provides elevation — no extra API call needed
+                elev = item.get('elevation')
+                if elev is None:
+                    elev = get_elevation(lat, lon)
+                return lat, lon, display, elev
+        except Exception:
+            logger.debug('Open-Meteo geocoding failed for "%s"', query_str)
+
+        # Fallback: Nominatim (richer display names, but can be slow from cloud IPs)
         try:
             url = 'https://nominatim.openstreetmap.org/search'
             params = {'q': query_str, 'format': 'json', 'limit': 1}
             user_agent = os.environ.get('NOMINATIM_USER_AGENT', 'weather-app/1.0 (contact: example@example.com)')
             headers = {'User-Agent': user_agent}
-            resp = requests.get(url, params=params, headers=headers, timeout=15)
+            resp = requests.get(url, params=params, headers=headers, timeout=5)
             resp.raise_for_status()
             data = resp.json()
             if data:
@@ -196,33 +223,11 @@ def geocode(location: str):
                 return lat, lon, display, elev
         except requests.HTTPError as e:
             if e.response.status_code == 403:
-                logger.warning('Nominatim blocked (403) — falling back to Open-Meteo for "%s"', query_str)
+                logger.warning('Nominatim blocked (403) for "%s"', query_str)
             else:
                 logger.warning('Nominatim geocoding failed for "%s": %s', query_str, e)
         except Exception:
-            logger.exception('Unexpected error calling Nominatim for "%s"', query_str)
-
-        # Fallback: Open-Meteo geocoding API
-        try:
-            g_url = 'https://geocoding-api.open-meteo.com/v1/search'
-            g_params = {'name': query_str, 'count': 1}
-            g_resp = requests.get(g_url, params=g_params, timeout=15)
-            g_resp.raise_for_status()
-            g_data = g_resp.json()
-            results = g_data.get('results') or []
-            if results:
-                item = results[0]
-                display = item.get('name')
-                if item.get('country'):
-                    display = f"{display}, {item.get('country')}"
-                lat = float(item['latitude'])
-                lon = float(item['longitude'])
-                elev = item.get('elevation')
-                if elev is None:
-                    elev = get_elevation(lat, lon)
-                return lat, lon, display, elev
-        except Exception:
-            logger.exception('Fallback geocoding failed for "%s"', query_str)
+            logger.debug('Nominatim geocoding failed for "%s"', query_str)
 
         return None
 
@@ -346,7 +351,7 @@ def get_fema_flood_history(lat: float, lon: float):
         geo_url = 'https://nominatim.openstreetmap.org/reverse'
         params = {'lat': lat, 'lon': lon, 'format': 'json'}
         user_agent = os.environ.get('NOMINATIM_USER_AGENT', 'weather-app/1.0 (contact: example@example.com)')
-        resp = requests.get(geo_url, params=params, headers={'User-Agent': user_agent}, timeout=10)
+        resp = requests.get(geo_url, params=params, headers={'User-Agent': user_agent}, timeout=3)
         resp.raise_for_status()
         addr = resp.json().get('address', {})
         state_name = addr.get('state', '')
