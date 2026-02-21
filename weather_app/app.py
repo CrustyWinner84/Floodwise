@@ -2,6 +2,8 @@ from flask import Flask, request, jsonify, render_template, make_response
 import requests
 import logging
 import os
+import time
+import functools
 from datetime import datetime, timedelta
 
 app = Flask(__name__, template_folder='templates')
@@ -146,8 +148,11 @@ def get_elevation_opentopography(lat: float, lon: float):
     return None
 
 
+@functools.lru_cache(maxsize=256)
 def geocode(location: str):
-    """Geocode a free-form location string to (lat, lon, display_name) using Nominatim."""
+    """Geocode a free-form location string to (lat, lon, display_name, elevation).
+    Results are LRU-cached so repeated lookups of the same location are instant.
+    """
     # Common landmark to city mappings for fallback
     landmark_map = {
         'eiffel tower': 'Paris',
@@ -184,35 +189,42 @@ def geocode(location: str):
         # Use just the first comma-delimited segment for the Open-Meteo lookup.
         om_city = query_str.split(',')[0].strip() if ',' in query_str else query_str
 
-        # Primary: Open-Meteo geocoding API — fast (~1s), no API key, no rate-limit concerns
-        try:
-            g_url = 'https://geocoding-api.open-meteo.com/v1/search'
-            g_params = {'name': om_city, 'count': 1}
-            g_resp = requests.get(g_url, params=g_params, timeout=8)
-            g_resp.raise_for_status()
-            g_data = g_resp.json()
-            results = g_data.get('results') or []
-            if results:
-                item = results[0]
-                lat = float(item['latitude'])
-                lon = float(item['longitude'])
-                # Build a readable display name
-                display_parts = [item.get('name', '')]
-                if item.get('admin1'):
-                    display_parts.append(item['admin1'])
-                if item.get('country'):
-                    display_parts.append(item['country'])
-                display = ', '.join(p for p in display_parts if p)
-                # Open-Meteo geocoding response already includes elevation
-                elev = item.get('elevation')
-                if elev is None:
-                    try:
-                        elev = get_elevation(lat, lon)
-                    except Exception:
-                        elev = None
-                return lat, lon, display, elev
-        except Exception:
-            logger.debug('Open-Meteo geocoding failed for "%s"', om_city)
+        # Primary: Open-Meteo geocoding API — fast (~1s), no API key, no rate-limit concerns.
+        # Retry once (with brief back-off) because Azure egress can be flaky on first attempt.
+        for _attempt in range(2):
+            try:
+                g_url = 'https://geocoding-api.open-meteo.com/v1/search'
+                g_params = {'name': om_city, 'count': 1}
+                g_resp = requests.get(g_url, params=g_params, timeout=8)
+                g_resp.raise_for_status()
+                g_data = g_resp.json()
+                results = g_data.get('results') or []
+                if results:
+                    item = results[0]
+                    lat = float(item['latitude'])
+                    lon = float(item['longitude'])
+                    # Build a readable display name
+                    display_parts = [item.get('name', '')]
+                    if item.get('admin1'):
+                        display_parts.append(item['admin1'])
+                    if item.get('country'):
+                        display_parts.append(item['country'])
+                    display = ', '.join(p for p in display_parts if p)
+                    # Open-Meteo geocoding response already includes elevation
+                    elev = item.get('elevation')
+                    if elev is None:
+                        try:
+                            elev = get_elevation(lat, lon)
+                        except Exception:
+                            elev = None
+                    return lat, lon, display, elev
+                break  # empty results — no point retrying
+            except Exception as _e:
+                if _attempt == 0:
+                    logger.debug('Open-Meteo geocoding attempt 1 failed for "%s": %s; retrying…', om_city, _e)
+                    time.sleep(0.5)
+                else:
+                    logger.debug('Open-Meteo geocoding failed after 2 attempts for "%s"', om_city)
 
         # Fallback 1: Nominatim (blocked with 403 from many cloud IPs, but try anyway)
         try:
