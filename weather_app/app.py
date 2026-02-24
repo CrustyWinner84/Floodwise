@@ -1633,6 +1633,11 @@ def api_ai_weather():
     # Gather live weather context if we have coords
     ctx_lines = []
     forecast_daily = {}
+    WMO_SHORT = {0:'clear sky',1:'mainly clear',2:'partly cloudy',3:'overcast',
+                 45:'fog',51:'light drizzle',53:'drizzle',55:'heavy drizzle',
+                 61:'light rain',63:'rain',65:'heavy rain',71:'light snow',
+                 73:'snow',75:'heavy snow',80:'showers',81:'moderate showers',
+                 82:'heavy showers',95:'thunderstorm',96:'thunderstorm+hail'}
     if lat is not None and lon is not None:
         try:
             forecast_daily = get_forecast_weather(lat, lon, 7)
@@ -1641,11 +1646,6 @@ def api_ai_weather():
             tmax   = forecast_daily.get('temperature_2m_max', [])
             tmin   = forecast_daily.get('temperature_2m_min', [])
             wcode  = forecast_daily.get('weathercode', [])
-            WMO_SHORT = {0:'clear sky',1:'mainly clear',2:'partly cloudy',3:'overcast',
-                         45:'fog',51:'light drizzle',53:'drizzle',55:'heavy drizzle',
-                         61:'light rain',63:'rain',65:'heavy rain',71:'light snow',
-                         73:'snow',75:'heavy snow',80:'showers',81:'moderate showers',
-                         82:'heavy showers',95:'thunderstorm',96:'thunderstorm+hail'}
             for i, d in enumerate(times[:7]):
                 wdesc = WMO_SHORT.get(int(wcode[i]) if i < len(wcode) and wcode[i] is not None else 0, '')
                 pr    = precip[i] if i < len(precip) and precip[i] is not None else 0
