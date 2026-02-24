@@ -548,17 +548,39 @@ function renderChart(hist, tgt) {
 
 function renderFema(fema) {
   var el = $s('fema-content');
-  if (!fema||!fema.events||!fema.events.length) {
-    var note = (fema&&fema.note)||((fema&&fema.error)?'Data unavailable (may be outside USA).':'No FEMA flood declarations found for this area.');
-    el.innerHTML = '<p class="no-data">'+note+'</p>'; return;
+  if (!fema || !fema.available) {
+    el.innerHTML = '<p class="no-data">' + ((fema && fema.note) || 'FEMA data unavailable for this location.') + '</p>';
+    return;
   }
-  var st = fema.state?' &mdash; '+fema.state:'', rl = fema.recent_count!=null?fema.recent_count+' in last 5 yrs':'';
-  var h = '<div style="margin-bottom:0.75rem;font-size:0.88rem;color:#ffaaaa"><strong style="color:#ffdddd">'+(fema.count||fema.events.length)+'</strong> federal flood declarations found'+st+(rl?' &nbsp;&middot;&nbsp; <strong style="color:#fca5a5">'+rl+'</strong>':'')+
+
+  // Static fallback path — no events but we have a state-level score
+  if (!fema.events || !fema.events.length) {
+    var scoreColor = fema.historical_risk_score > 20 ? '#f87171' : fema.historical_risk_score > 10 ? '#fbbf24' : '#4ade80';
+    var scoreLabel = fema.historical_risk_score > 20 ? 'High historical flood frequency' : fema.historical_risk_score > 10 ? 'Moderate historical flood frequency' : 'Lower historical flood frequency';
+    el.innerHTML =
+      '<div style="display:flex;align-items:center;gap:1rem;margin-bottom:0.65rem;flex-wrap:wrap">' +
+        '<span style="font-size:2rem;font-weight:bold;color:' + scoreColor + '">' + fema.historical_risk_score + '</span>' +
+        '<span style="color:#888;font-size:0.9rem">/ 35 &nbsp;flood risk score</span>' +
+        '<span style="background:rgba(255,255,255,0.07);padding:0.15rem 0.55rem;border-radius:5px;font-size:0.78rem;color:' + scoreColor + '">' + scoreLabel + '</span>' +
+      '</div>' +
+      '<p style="font-size:0.8rem;color:#aaa;margin:0">' + (fema.state ? '📍 ' + fema.state + ' &nbsp;&middot;&nbsp; ' : '') +
+        (fema.note || 'State-level estimate based on FEMA historical flood declaration records.') + '</p>';
+    return;
+  }
+
+  // Full live data path
+  var st = fema.state ? ' &mdash; ' + fema.state : '';
+  var rl = fema.recent_5yr_count != null ? fema.recent_5yr_count + ' in last 5 yrs' : '';
+  var h = '<div style="margin-bottom:0.75rem;font-size:0.88rem;color:#ffaaaa"><strong style="color:#ffdddd">' +
+    (fema.total_flood_declarations || fema.events.length) + '</strong> federal flood declarations found' + st +
+    (rl ? ' &nbsp;&middot;&nbsp; <strong style="color:#fca5a5">' + rl + '</strong>' : '') +
     '</div><table class="fema-table"><thead><tr><th>Date</th><th>Declaration</th><th>Area</th><th>State</th></tr></thead><tbody>';
-  fema.events.forEach(function(e){
-    h += '<tr><td>'+(e.declarationDate||'').slice(0,10)+'</td><td>'+(e.declarationTitle||e.incidentType||'—')+'</td><td>'+(e.designatedArea||'—')+'</td><td><span class="fema-badge">'+(e.state||'—')+'</span></td></tr>';
+  fema.events.forEach(function(e) {
+    h += '<tr><td>' + (e.declarationDate || '').slice(0, 10) + '</td><td>' +
+      (e.declarationTitle || e.incidentType || '—') + '</td><td>' +
+      (e.designatedArea || '—') + '</td><td><span class="fema-badge">' + (e.state || '—') + '</span></td></tr>';
   });
-  el.innerHTML = h+'</tbody></table>';
+  el.innerHTML = h + '</tbody></table>';
 }
 
 function renderUsgs(usgs) {
