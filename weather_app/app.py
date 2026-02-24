@@ -337,20 +337,28 @@ def geocode(location: str):
 
 
 def get_weather(lat: float, lon: float):
-    """Fetch current weather from Open-Meteo (no API key required)."""
+    """Fetch current weather from Open-Meteo. Cached for 10 minutes per location."""
+    import time as _t
+    key = (round(lat, 2), round(lon, 2))
+    now = _t.time()
+    if key in _weather_cache:
+        ts, cached = _weather_cache[key]
+        if now - ts < _WEATHER_CACHE_TTL_S:
+            return cached
+
     url = 'https://api.open-meteo.com/v1/forecast'
     params = {
         'latitude': lat, 'longitude': lon,
         'current': 'temperature_2m,weathercode,windspeed_10m,winddirection_10m,precipitation,relative_humidity_2m',
         'timezone': 'auto'
     }
-    resp = requests.get(url, params=params, timeout=8)
+    resp = requests.get(url, params=params, timeout=6)
     resp.raise_for_status()
     data = resp.json()
     cur = data.get('current', {})
     if not cur:
         return None
-    return {
+    result = {
         'temperature':   cur.get('temperature_2m'),
         'windspeed':     cur.get('windspeed_10m'),
         'winddirection': cur.get('winddirection_10m'),
@@ -358,12 +366,20 @@ def get_weather(lat: float, lon: float):
         'precipitation': cur.get('precipitation'),
         'humidity':      cur.get('relative_humidity_2m'),
     }
+    _weather_cache[key] = (now, result)
+    return result
 
 
 def get_historical_weather(lat: float, lon: float, start_date: str, end_date: str):
-    """Fetch historical weather from Open-Meteo Archive API.
-    Dates should be in YYYY-MM-DD format.
-    """
+    """Fetch historical weather from Open-Meteo Archive API. Cached 6h per window."""
+    import time as _t
+    key = (round(lat, 2), round(lon, 2), start_date, end_date)
+    now = _t.time()
+    if key in _hist_cache:
+        ts, cached = _hist_cache[key]
+        if now - ts < _HIST_CACHE_TTL_S:
+            return cached
+
     url = 'https://archive-api.open-meteo.com/v1/archive'
     params = {
         'latitude': lat,
@@ -374,15 +390,16 @@ def get_historical_weather(lat: float, lon: float, start_date: str, end_date: st
         'temperature_unit': 'celsius',
         'timezone': 'UTC'
     }
-    resp = requests.get(url, params=params, timeout=15)
+    resp = requests.get(url, params=params, timeout=8)
     resp.raise_for_status()
     data = resp.json()
-    # Return the daily data
-    return {
+    result = {
         'location': {'latitude': lat, 'longitude': lon},
         'daily': data.get('daily', {}),
         'timezone': data.get('timezone')
     }
+    _hist_cache[key] = (now, result)
+    return result
 
 
 # US State abbreviation lookup (used for FEMA API queries)
@@ -407,6 +424,18 @@ STATE_ABBREVS = {
 # In-memory FEMA cache keyed by state abbreviation — 24 h TTL
 _fema_cache: dict = {}  # {state_abbrev: (fetched_at_datetime, result_dict)}
 _FEMA_CACHE_TTL_S = 86400  # 24 hours
+
+# In-memory weather cache — 10 min TTL, keyed by rounded (lat, lon)
+_weather_cache: dict = {}  # {(lat2, lon2): (epoch_ts, result)}
+_WEATHER_CACHE_TTL_S = 600  # 10 minutes
+
+# In-memory historical weather cache — 6 h TTL, keyed by (lat2, lon2, start, end)
+_hist_cache: dict = {}  # {(lat2, lon2, start, end): (epoch_ts, result)}
+_HIST_CACHE_TTL_S = 21600  # 6 hours
+
+# In-memory USGS cache — 5 min TTL, keyed by rounded (lat, lon)
+_usgs_cache: dict = {}  # {(lat2, lon2): (epoch_ts, result)}
+_USGS_CACHE_TTL_S = 300  # 5 minutes
 
 
 def get_fema_flood_history(lat: float, lon: float):
@@ -484,8 +513,15 @@ def get_fema_flood_history(lat: float, lon: float):
 def get_usgs_stream_gauge(lat: float, lon: float):
     """Query USGS Water Services for nearby real-time stream gauge data.
     Completely free, no API key required. US only.
-    Returns up to 3 nearby gauges and a live gauge risk score (0-35).
+    Cached 5 minutes per location.
     """
+    import time as _t
+    _key = (round(lat, 2), round(lon, 2))
+    _now = _t.time()
+    if _key in _usgs_cache:
+        _ts, _cached = _usgs_cache[_key]
+        if _now - _ts < _USGS_CACHE_TTL_S:
+            return _cached
     try:
         # Search within ~0.5 degree bounding box
         bbox = f'{lon - 0.5},{lat - 0.5},{lon + 0.5},{lat + 0.5}'
@@ -496,7 +532,7 @@ def get_usgs_stream_gauge(lat: float, lon: float):
             'parameterCd': '00065',  # Gage height in feet
             'siteStatus': 'active',
         }
-        resp = requests.get(url, params=params, timeout=15)
+        resp = requests.get(url, params=params, timeout=8)
         resp.raise_for_status()
         ts = resp.json().get('value', {}).get('timeSeries', [])
 
@@ -535,11 +571,13 @@ def get_usgs_stream_gauge(lat: float, lon: float):
         except Exception:
             pass
 
-        return {
+        _result = {
             'available': True,
             'gauges': gauges,
             'gauge_risk_score': gauge_score
         }
+        _usgs_cache[_key] = (_now, _result)
+        return _result
     except Exception as e:
         logger.debug('USGS stream gauge lookup failed: %s', e)
         return {'available': False, 'gauges': [], 'gauge_risk_score': 0, 'note': str(e)}
@@ -1372,15 +1410,14 @@ def api_ai_weather():
     in live Open-Meteo 7-day forecast data.
     """
     question = (request.args.get('q') or request.args.get('question') or '').strip()
-    lat      = request.args.get('lat',  type=float)
-    lon      = request.args.get('lon',  type=float)
-    location = request.args.get('location', '').strip()
 
     if not question:
         return jsonify({'error': 'Provide a "q" (question) parameter'}), 400
 
-    # --- Try to extract a place name from the question if no coords provided ---
-    loc_name = location
+    # --- Extract place name entirely from the question text ---
+    # The AI is fully self-contained: it never receives coordinates from the main page.
+    lat, lon = None, None
+    loc_name = ''
     # Words that look like places but aren't
     _skip_words = {
         'the','a','an','my','our','it','this','that','there','here',
@@ -1455,14 +1492,9 @@ def api_ai_weather():
         return None
 
     if lat is None or lon is None:
-        if location:
-            geo = geocode(location)
-            if geo:
-                lat, lon, loc_name, _ = geo
-        else:
-            geo = _extract_place(question)
-            if geo:
-                lat, lon, loc_name, _ = geo
+        geo = _extract_place(question)
+        if geo:
+            lat, lon, loc_name, _ = geo
 
     # Gather live weather context if we have coords
     ctx_lines = []
@@ -1705,10 +1737,15 @@ def api_full_report():
 
     lat, lon, display_name, elevation = geo
 
-    # 2–6. Compute date window, then fetch weather / history / FEMA / USGS in parallel.
-    target_date = datetime.strptime(date_str, '%Y-%m-%d')
-    hist_start  = (target_date - timedelta(days=15)).strftime('%Y-%m-%d')
-    hist_end    = (target_date + timedelta(days=15)).strftime('%Y-%m-%d')
+    # 2–6. Compute date window capped to historical data available (archive API lags ~2 days).
+    # Always use a fixed 30-day trailing window so we never request future dates.
+    today       = datetime.utcnow().date()
+    target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+    # hist_end is the earlier of (target_date) and (today - 2 days)
+    hist_end_date   = min(target_date, today - timedelta(days=2))
+    hist_start_date = hist_end_date - timedelta(days=30)
+    hist_start = hist_start_date.strftime('%Y-%m-%d')
+    hist_end   = hist_end_date.strftime('%Y-%m-%d')
 
     from concurrent.futures import ThreadPoolExecutor
     with ThreadPoolExecutor(max_workers=4) as pool:
@@ -1718,22 +1755,22 @@ def api_full_report():
         f_usgs    = pool.submit(get_usgs_stream_gauge, lat, lon)
 
         try:
-            current_weather = f_weather.result()
+            current_weather = f_weather.result(timeout=8)
         except Exception:
             current_weather = None
 
         try:
-            historical_data = f_hist.result()
+            historical_data = f_hist.result(timeout=10)
         except Exception:
             historical_data = None
 
         try:
-            fema_data = f_fema.result()
+            fema_data = f_fema.result(timeout=15)
         except Exception:
             fema_data = {'events': [], 'historical_risk_score': 0}
 
         try:
-            usgs_data = f_usgs.result()
+            usgs_data = f_usgs.result(timeout=10)
         except Exception:
             usgs_data = {'gauges': [], 'gauge_risk_score': 0}
 

@@ -630,8 +630,6 @@ function renderCameraFeed(lat, lon, locName) {
 }
 
 // --------------- AI Chat Panel ---------------------------------------
-var _aiContextLat = null, _aiContextLon = null, _aiContextLoc = '';
-
 function toggleAiPanel(force) {
   var panel = $s('ai-panel'), overlay = $s('ai-overlay');
   var open = force !== undefined ? force : !panel.classList.contains('open');
@@ -684,8 +682,6 @@ async function sendAiMessage() {
   var typing = showAiTyping();
   try {
     var url = '/api/ai-weather?q=' + encodeURIComponent(q);
-    if (_aiContextLat) url += '&lat=' + _aiContextLat + '&lon=' + _aiContextLon;
-    if (_aiContextLoc) url += '&location=' + encodeURIComponent(_aiContextLoc);
     var res = await fetch(url);
     var data = await res.json();
     typing.remove();
@@ -816,8 +812,6 @@ async function go() {
     // Load forecast + camera feed in background
     loadForecast(data.latitude, data.longitude, data.elevation_m);
     renderCameraFeed(data.latitude, data.longitude, data.location);
-    // Set AI context for location-aware answers
-    _aiContextLat = data.latitude; _aiContextLon = data.longitude; _aiContextLoc = data.location || q;
     // Stash coords for evacuation route engine
     _curLat = data.latitude; _curLon = data.longitude; _curElev = data.elevation_m;
     // Reset evacuation panel for new location
