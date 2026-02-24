@@ -1222,7 +1222,10 @@ def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
     precip    = forecast_daily.get('precipitation_sum', [])
     precip_p  = forecast_daily.get('precipitation_probability_max', [])
 
-    near_water, water_name = is_near_water_body(lat, lon)
+    try:
+        near_water, water_name = is_near_water_body(lat, lon)
+    except Exception:
+        near_water, water_name = False, ''
 
     # --- Fixed geographic base (small, so daily precip drives variation) ---
     elevation_risk = 0
@@ -1304,9 +1307,17 @@ def api_forecast_risk():
             f_fc   = pool.submit(get_forecast_weather, lat, lon, 16)
             f_fema = pool.submit(get_fema_flood_history, lat, lon)
             f_usgs = pool.submit(get_usgs_stream_gauge, lat, lon)
-            forecast_daily = f_fc.result()
-            fema_data      = f_fema.result()
-            usgs_data      = f_usgs.result()
+            # Forecast is mandatory — let it raise if it fails
+            forecast_daily = f_fc.result(timeout=12)
+            # FEMA/USGS are optional — degrade gracefully if they fail
+            try:
+                fema_data = f_fema.result(timeout=10)
+            except Exception:
+                fema_data = {'events': [], 'historical_risk_score': 0}
+            try:
+                usgs_data = f_usgs.result(timeout=10)
+            except Exception:
+                usgs_data = {'gauges': [], 'gauge_risk_score': 0}
 
         daily_risks = calculate_flood_risk_forecast(lat, lon, forecast_daily,
                                                      elevation_m=elev,

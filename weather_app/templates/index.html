@@ -596,10 +596,14 @@ async function loadForecast(lat, lon, elev) {
     var url = '/api/forecast-risk?lat=' + lat + '&lon=' + lon + (elev != null ? '&elevation=' + elev : '');
     var res = await fetch(url);
     var data = await res.json();
-    if (data.forecast) renderForecast(data.forecast);
-    else $s('forecast-grid').innerHTML = '<p class="no-data">Forecast unavailable.</p>';
+    if (data.forecast && data.forecast.length) {
+      renderForecast(data.forecast);
+    } else {
+      var msg = data.error ? 'Forecast error: ' + data.error : 'Forecast unavailable.';
+      $s('forecast-grid').innerHTML = '<p class="no-data">' + msg + '</p>';
+    }
   } catch(e) {
-    $s('forecast-grid').innerHTML = '<p class="no-data">Forecast unavailable.</p>';
+    $s('forecast-grid').innerHTML = '<p class="no-data">Forecast error: ' + e.message + '</p>';
   }
 }
 
