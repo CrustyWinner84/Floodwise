@@ -182,8 +182,13 @@
     .fc-mod   { color: #fbbf24; border-bottom: 3px solid #f59e0b; }
     .fc-hi    { color: #f87171; border-bottom: 3px solid #ef4444; }
     /* ---- Nearby Camera Feed ------------------------------------------ */
-    .cam-wrap { margin-top: 0.85rem; border-radius: 10px; overflow: hidden; border: 1px solid rgba(100,160,255,0.15); background: #04091c; }
-    .cam-wrap iframe { display: block; width: 100%; height: 360px; border: none; }
+    .cam-wrap { margin-top: 0.85rem; }
+    .cam-split { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    @media (max-width: 650px) { .cam-split { grid-template-columns: 1fr; } }
+    .cam-pane { border-radius: 10px; overflow: hidden; border: 1px solid rgba(100,160,255,0.15); background: #04091c; }
+    .cam-pane iframe { display: block; width: 100%; border: none; }
+    .cam-pane-label { font-size: 0.68rem; color: #7cb8f5; text-transform: uppercase; letter-spacing: 0.5px; padding: 0.4rem 0.75rem; background: rgba(0,0,0,0.35); border-bottom: 1px solid rgba(100,160,255,0.1); }
+    .cam-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 280px; color: #4a6a8a; font-size: 0.82rem; gap: 0.65rem; }
     /* ---- AI Chat Panel ----------------------------------------------- */
     #ai-btn {
       position: fixed; top: 1.1rem; right: 1.2rem; z-index: 9000;
@@ -599,17 +604,44 @@ async function loadForecast(lat, lon, elev) {
 }
 
 function renderCameraFeed(lat, lon, locName) {
-  var city = encodeURIComponent(locName || '');
-  var windyUrl = 'https://embed.windy.com/embed2.html?lat=' + lat + '&lon=' + lon +
-    '&zoom=12&level=surface&overlay=webcams&menu=&message=&marker=true&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1';
-  var earthcamUrl = 'https://www.earthcam.com/map/';
+  var mapUrl = 'https://embed.windy.com/embed2.html?lat=' + lat + '&lon=' + lon +
+    '&zoom=11&level=surface&overlay=webcams&product=ecmwf&menu=&message=true' +
+    '&marker=true&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1';
+  var ecLat = lat.toFixed(4), ecLon = lon.toFixed(4);
+  var earthcamUrl = 'https://www.earthcam.com/network/?lat=' + ecLat + '&lng=' + ecLon;
+
   $s('cam-wrap').innerHTML =
-    '<div style="display:flex;gap:0.6rem;margin-bottom:0.7rem;flex-wrap:wrap">' +
-    '<a href="' + earthcamUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;background:#0d3b73;border:1px solid rgba(100,160,255,0.3);border-radius:8px;padding:0.45rem 1rem;color:#c5e0ff;text-decoration:none;font-size:0.85rem">&#x1F4F9; Open EarthCam &rarr;</a>' +
-    '<a href="https://windy.com/webcams/?lat=' + lat + '&lon=' + lon + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;background:rgba(255,255,255,0.05);border:1px solid rgba(100,160,255,0.2);border-radius:8px;padding:0.45rem 1rem;color:#90c4ff;text-decoration:none;font-size:0.85rem">&#x1F30D; Windy Webcams &rarr;</a>' +
+    '<div class="cam-split">' +
+      '<div class="cam-pane">' +
+        '<div class="cam-pane-label">&#x1F4CD; Webcam Map &mdash; Click a pin to play</div>' +
+        '<iframe src="' + mapUrl + '" height="300" allowfullscreen loading="lazy"></iframe>' +
+      '</div>' +
+      '<div class="cam-pane" id="ec-pane">' +
+        '<div class="cam-pane-label">&#x1F4F9; EarthCam Live Feed</div>' +
+        '<iframe src="' + earthcamUrl + '" height="300" allowfullscreen loading="lazy" id="ec-frame"></iframe>' +
+      '</div>' +
     '</div>' +
-    '<iframe src="' + windyUrl + '" allowfullscreen loading="lazy"></iframe>' +
-    '<p style="font-size:0.75rem;color:#4a6a8a;margin-top:0.5rem">&#x1F4F7; Click any camera icon on the map to watch a live stream. Or use the <strong>EarthCam</strong> button above for full-screen live video feeds.</p>';
+    '<p style="font-size:0.72rem;color:#4a6a8a;margin-top:0.5rem">Left: click any &#x1F4F7; pin to watch a live stream. Right: EarthCam network feeds. ' +
+    'If the right panel is blank, <a href="https://www.earthcam.com/map/#' + ecLat + ',' + ecLon + ',12z" target="_blank" rel="noopener" style="color:#7cb8f5">open EarthCam map &#x2197;</a></p>';
+
+  // After 4s check if EarthCam iframe blocked (cross-origin throws) and swap in fallback
+  setTimeout(function() {
+    var ef = document.getElementById('ec-frame');
+    var ep = document.getElementById('ec-pane');
+    if (!ef || !ep) return;
+    var blocked = false;
+    try { blocked = !ef.contentDocument || ef.contentDocument.body.innerHTML.trim() === ''; }
+    catch(e) { blocked = true; }
+    if (blocked) {
+      var ph = document.createElement('div');
+      ph.className = 'cam-placeholder';
+      ph.innerHTML = '<span style="font-size:2rem">&#x1F4F9;</span>' +
+        '<span style="color:#7cb8f5">EarthCam cannot be embedded</span>' +
+        '<a href="https://www.earthcam.com/map/#' + ecLat + ',' + ecLon + ',12z" target="_blank" rel="noopener" ' +
+        'style="background:#0d3b73;border:1px solid rgba(100,160,255,0.3);border-radius:8px;padding:0.45rem 1.1rem;color:#c5e0ff;text-decoration:none;font-size:0.85rem">&#x1F310; Open EarthCam Map &#x2197;</a>';
+      ef.replaceWith(ph);
+    }
+  }, 4000);
 }
 
 // --------------- AI Chat Panel ---------------------------------------
