@@ -560,7 +560,6 @@ def get_fema_flood_history(lat: float, lon: float):
             }
         return {'available': False, 'events': [], 'historical_risk_score': 0,
                 'note': 'FEMA flood history data unavailable for this location.'}
-                'note': 'FEMA flood history data unavailable for this location.'}
 
 
 def get_usgs_stream_gauge(lat: float, lon: float):
