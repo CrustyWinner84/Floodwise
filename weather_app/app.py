@@ -1299,9 +1299,11 @@ def api_forecast_risk():
 @app.route('/api/ai-weather')
 def api_ai_weather():
     """Weather-scoped AI assistant.  Accepts a natural-language question and an
-    optional lat/lon context.  Uses Open-Meteo forecast data as grounding so
-    answers are factual for the requested location.  No external LLM API key needed.
+    optional lat/lon context.  If no coords are provided it attempts to extract
+    a place name from the question itself, geocodes it, and grounds the answer
+    in live Open-Meteo 7-day forecast data.
     """
+    import re
     question = (request.args.get('q') or request.args.get('question') or '').strip()
     lat      = request.args.get('lat',  type=float)
     lon      = request.args.get('lon',  type=float)
@@ -1310,13 +1312,47 @@ def api_ai_weather():
     if not question:
         return jsonify({'error': 'Provide a "q" (question) parameter'}), 400
 
-    # Optional: resolve location to coords
+    # --- Try to extract a place name from the question if no coords provided ---
     loc_name = location
     if lat is None or lon is None:
+        # Try explicit location param first
         if location:
             geo = geocode(location)
             if geo:
                 lat, lon, loc_name, _ = geo
+        else:
+            # Pattern-based extraction: "in X", "for X", "at X", "near X", "around X"
+            place_match = re.search(
+                r'\b(?:in|for|at|near|around|about|forecast for|weather in|weather at|'  
+                r'weather for|conditions in|conditions at|skiing in|ski in|visit|visiting)'  
+                r'\s+([A-Z][a-zA-Z\s,\.]{2,40}?)(?:\s+(?:this|next|today|tomorrow|now|'  
+                r'weekend|week|on|will|is|are|be|the|a)\b|\?|$)',
+                question, re.IGNORECASE
+            )
+            if not place_match:
+                # Also try bare capitalised place at end: "How is Snoqualmie looking"
+                place_match = re.search(
+                    r'\bHow\s+is\s+(?:it\s+looking\s+in\s+|)([A-Z][a-zA-Z\s,\.]{2,30}?)'
+                    r'(?:\s|\?|$)', question)
+            if not place_match:
+                # "Can I ski Snoqualmie" / "Will Seattle flood"
+                place_match = re.search(
+                    r'\b(?:ski|skiing|visit|flood|rain|snow|storm|travel to|fly to|go to)\s+'
+                    r'([A-Z][a-zA-Z\s]{2,30}?)(?:\s+(?:this|next|on|\?)|\.?$)',
+                    question)
+            if place_match:
+                candidate = place_match.group(1).strip().rstrip(',.?')
+                # Filter out common non-place words
+                skip = {'the', 'a', 'an', 'my', 'our', 'it', 'this', 'that', 'there', 'here',
+                        'today', 'tomorrow', 'weekend', 'week', 'month', 'year', 'weather',
+                        'forecast', 'rain', 'snow', 'wind', 'flood', 'temperature'}
+                if candidate.lower() not in skip and len(candidate) > 2:
+                    try:
+                        geo = geocode(candidate)
+                        if geo:
+                            lat, lon, loc_name, _ = geo
+                    except Exception:
+                        pass
 
     # Gather live weather context if we have coords
     ctx_lines = []
@@ -1348,113 +1384,180 @@ def api_ai_weather():
     q_lower = question.lower()
     answer  = None
     ctx     = '\n'.join(ctx_lines)
+    place   = loc_name or 'the area you mentioned'
+    no_loc  = lat is None
+
+    # --- Ski / outdoor activities ---
+    if any(w in q_lower for w in ['ski','skiing','snowboard','slope','powder','resort','lift']):
+        if no_loc:
+            answer = ("I couldn't identify a specific location in your question. "
+                      "Try asking: **'Can I ski in Snoqualmie this weekend?'** and I'll check the forecast!")
+        else:
+            snow_days  = [i for i, c in enumerate(forecast_daily.get('weathercode', []))
+                          if c is not None and int(c) in range(71, 78)]
+            tmaxs      = forecast_daily.get('temperature_2m_max', [])
+            tmins      = forecast_daily.get('temperature_2m_min', [])
+            times      = forecast_daily.get('time', [])
+            cold_days  = [i for i, v in enumerate(tmins) if v is not None and float(v) < 2]
+            # Weekend = index 5 & 6 (Saturday/Sunday from today)
+            weekend    = [5, 6]
+            snow_wknd  = [i for i in snow_days  if i in weekend]
+            cold_wknd  = [i for i in cold_days  if i in weekend]
+            if snow_wknd:
+                answer = (f"**Great news for skiing in {place}!** ❄️\n"
+                          f"Snow is forecast on {'Saturday' if 5 in snow_wknd else ''}"
+                          f"{'and ' if 5 in snow_wknd and 6 in snow_wknd else ''}"
+                          f"{'Sunday' if 6 in snow_wknd else ''} this weekend. "
+                          f"Temperatures will be around {tmins[snow_wknd[0]]:.0f}–{tmaxs[snow_wknd[0]]:.0f}°C — "
+                          "ideal powder conditions. Check the resort's snow report and trail status before heading out!")
+            elif cold_wknd:
+                answer = (f"No fresh snow is forecast for {place} this weekend, but it will be **cold** "
+                          f"(lows near {min(tmins[i] for i in cold_wknd if tmins[i] is not None):.0f}°C). "
+                          "Existing snow base may hold — check the resort's snow conditions report. "
+                          "Dress in layers!")
+            else:
+                avg_max_wknd = [tmaxs[i] for i in weekend if i < len(tmaxs) and tmaxs[i] is not None]
+                temp_note = f"Highs around {sum(avg_max_wknd)/len(avg_max_wknd):.0f}°C" if avg_max_wknd else ''
+                answer = (f"The weekend forecast for {place} doesn't show fresh snow ❌ "
+                          f"and {temp_note} — conditions may be slushy or icy. "
+                          "Check the resort's snow report for current base depth. "
+                          "Mid-week snowfall earlier in the week could still leave a decent base!")
 
     # --- Flood / rain risk ---
-    if any(w in q_lower for w in ['flood','flooding','inundation','overflow','surge']):
-        rainy_days = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 5)
-        if rainy_days >= 4:
-            answer = (f"Based on the 7-day forecast for {loc_name or 'this location'}, "
-                      f"there are {rainy_days} days with significant precipitation (>5 mm). "
-                      "This increases surface runoff and flood risk, especially in low-lying or "
-                      "riverside areas. Monitor local emergency alerts and consider reviewing the "
-                      "flood risk score in the report above.")
+    elif any(w in q_lower for w in ['flood','flooding','inundation','overflow','surge']):
+        if no_loc:
+            answer = ("Ask me about a specific place, e.g. **'Is there flood risk in New Orleans?'** "
+                      "and I'll check the 7-day forecast for you.")
         else:
-            answer = (f"The 7-day forecast for {loc_name or 'this location'} shows {rainy_days} "
-                      "day(s) with notable rain. Flood risk appears relatively low in the near term, "
-                      "but always check local authority warnings for real-time updates.")
+            rainy_days = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 5)
+            if rainy_days >= 4:
+                answer = (f"Based on the 7-day forecast for **{place}**, "
+                          f"there are **{rainy_days} days** with significant precipitation (>5 mm). "
+                          "This increases surface runoff and flood risk, especially in low-lying or "
+                          "riverside areas. Monitor local emergency alerts and review the flood risk score above.")
+            else:
+                answer = (f"The 7-day forecast for **{place}** shows {rainy_days} day(s) with notable rain. "
+                          "Flood risk appears relatively low in the near term, "
+                          "but always check local authority warnings for real-time updates.")
 
     # --- Rain / precipitation ---
     elif any(w in q_lower for w in ['rain','precip','shower','drizzle','wet','umbrella']):
-        rainy = [(t, p) for t, p in zip(forecast_daily.get('time', []),
-                                         forecast_daily.get('precipitation_sum', []))
-                 if p and float(p) > 0.5]
-        if rainy:
-            day_list = ', '.join(f"{t} ({float(p):.1f} mm)" for t, p in rainy[:4])
-            answer = f"Rain is expected on: {day_list}. {'Bring an umbrella!' if len(rainy) >= 3 else 'Mostly dry otherwise.'}"
+        if no_loc:
+            answer = "Try asking: **'Will it rain in Seattle this week?'** — I'll pull the live forecast!"
         else:
-            answer = f"No significant rain is forecast in the next 7 days for {loc_name or 'this location'}. Enjoy the dry weather!"
+            rainy = [(t, p) for t, p in zip(forecast_daily.get('time', []),
+                                             forecast_daily.get('precipitation_sum', []))
+                     if p and float(p) > 0.5]
+            if rainy:
+                day_list = ', '.join(f"{t} ({float(p):.1f} mm)" for t, p in rainy[:4])
+                answer = f"Rain is expected in **{place}** on: {day_list}. {'Bring an umbrella! ☂️' if len(rainy) >= 3 else 'Mostly dry otherwise.'}"
+            else:
+                answer = f"No significant rain is forecast in the next 7 days for **{place}**. Enjoy the dry weather! ☀️"
 
     # --- Temperature / heat ---
-    elif any(w in q_lower for w in ['temp','hot','cold','heat','warm','cool','freeze','frost','celsius','fahrenheit']):
-        tmaxs = [v for v in forecast_daily.get('temperature_2m_max', []) if v is not None]
-        tmins = [v for v in forecast_daily.get('temperature_2m_min', []) if v is not None]
-        if tmaxs:
-            avg_max = sum(tmaxs) / len(tmaxs)
-            avg_min = sum(tmins) / len(tmins) if tmins else 0
-            answer = (f"Over the next 7 days in {loc_name or 'this location'}: "
-                      f"average high {avg_max:.1f}°C, average low {avg_min:.1f}°C. "
-                      f"Peak: {max(tmaxs):.1f}°C. {'Expect frost risk.' if min(tmins) < 2 else ''}")
+    elif any(w in q_lower for w in ['temp','hot','cold','heat','warm','cool','freeze','frost','celsius','fahrenheit','degrees']):
+        if no_loc:
+            answer = "Try asking: **'How cold will it be in Denver this week?'** and I'll check the forecast!"
         else:
-            answer = "Temperature data is not available for this location right now."
+            tmaxs = [v for v in forecast_daily.get('temperature_2m_max', []) if v is not None]
+            tmins = [v for v in forecast_daily.get('temperature_2m_min', []) if v is not None]
+            if tmaxs:
+                avg_max = sum(tmaxs) / len(tmaxs)
+                avg_min = sum(tmins) / len(tmins) if tmins else 0
+                answer = (f"Next 7 days in **{place}**: "
+                          f"average high **{avg_max:.1f}°C**, average low **{avg_min:.1f}°C**. "
+                          f"Peak: {max(tmaxs):.1f}°C. {'⚠️ Frost risk.' if min(tmins) < 2 else ''}")
+            else:
+                answer = "Temperature data is not available for this location right now."
 
     # --- Wind ---
     elif any(w in q_lower for w in ['wind','gust','breeze','storm','hurricane','typhoon','cyclone']):
-        winds = [v for v in forecast_daily.get('windspeed_10m_max', []) if v is not None]
-        if winds:
-            max_wind = max(winds)
-            avg_wind = sum(winds) / len(winds)
-            level = 'strong' if max_wind > 60 else ('moderate' if max_wind > 30 else 'light')
-            answer = (f"Wind forecast for {loc_name or 'this location'}: average {avg_wind:.1f} km/h, "
-                      f"peak {max_wind:.1f} km/h — {level} winds. "
-                      f"{'Take precautions outdoors.' if max_wind > 50 else 'No major wind hazard expected.'}")
+        if no_loc:
+            answer = "Try asking: **'How windy will it be in Chicago this week?'**"
         else:
-            answer = "Wind data is currently unavailable for this location."
+            winds = [v for v in forecast_daily.get('windspeed_10m_max', []) if v is not None]
+            if winds:
+                max_wind = max(winds)
+                avg_wind = sum(winds) / len(winds)
+                level = 'strong 💨' if max_wind > 60 else ('moderate' if max_wind > 30 else 'light')
+                answer = (f"Wind forecast for **{place}**: average {avg_wind:.1f} km/h, "
+                          f"peak {max_wind:.1f} km/h — {level} winds. "
+                          f"{'⚠️ Take precautions outdoors.' if max_wind > 50 else 'No major wind hazard expected.'}")
+            else:
+                answer = f"Wind data is currently unavailable for **{place}**."
 
     # --- Snow / ice ---
     elif any(w in q_lower for w in ['snow','ice','blizzard','sleet','hail','frost']):
-        snow_days = sum(1 for c in forecast_daily.get('weathercode', []) if c and int(c) in range(71, 78))
-        tmins = [v for v in forecast_daily.get('temperature_2m_min', []) if v is not None]
-        if snow_days > 0:
-            answer = (f"Snow or icy conditions are possible on {snow_days} day(s) in the next week "
-                      f"for {loc_name or 'this location'}. Drive carefully and prepare for reduced visibility.")
-        elif tmins and min(tmins) < 2:
-            answer = (f"No snow is forecast, but temperatures will drop below 2°C in {loc_name or 'this location'}, "
-                      "so frost is possible. Protect exposed pipes and plants.")
+        if no_loc:
+            answer = "Try asking: **'Will it snow in Denver this weekend?'** and I'll check!"
         else:
-            answer = f"No snow or icy conditions are expected in the next 7 days for {loc_name or 'this location'}."
+            snow_days = sum(1 for c in forecast_daily.get('weathercode', []) if c and int(c) in range(71, 78))
+            tmins = [v for v in forecast_daily.get('temperature_2m_min', []) if v is not None]
+            if snow_days > 0:
+                answer = (f"❄️ Snow or icy conditions are possible on **{snow_days} day(s)** in the next week "
+                          f"for **{place}**. Drive carefully and prepare for reduced visibility.")
+            elif tmins and min(tmins) < 2:
+                answer = (f"No snow is forecast, but temperatures will drop below 2°C in **{place}**, "
+                          "so frost is possible. Protect exposed pipes and plants.")
+            else:
+                answer = f"No snow or icy conditions are expected in the next 7 days for **{place}**."
 
     # --- Forecast / what's the weather ---
-    elif any(w in q_lower for w in ['forecast','tomorrow','week','today','weather like','what will']):
-        if ctx_lines:
-            answer = "Here is the 7-day forecast:\n" + '\n'.join(ctx_lines[1:])
+    elif any(w in q_lower for w in ['forecast','tomorrow','this week','today','weather like','what will','how is','how\'s','looking']):
+        if no_loc:
+            answer = "Try asking: **'What's the weather like in Miami this week?'** and I'll show you the full 7-day forecast!"
         else:
-            answer = "Please search for a location first so I can pull the live forecast for you."
+            if ctx_lines:
+                answer = f"📅 7-day forecast for **{place}**:\n" + '\n'.join(ctx_lines[1:])
+            else:
+                answer = f"Could not load forecast data for **{place}** right now. Please try again."
 
     # --- Evacuation / safety ---
     elif any(w in q_lower for w in ['evacuat','safe','escape','leave','shelter','emergency']):
-        answer = ("For evacuation guidance, use the '🚨 Smart Evacuation Routes' section below — it computes "
+        answer = ("For evacuation guidance, use the **🚨 Smart Evacuation Routes** section — it computes "
                   "up to 3 road-based escape routes to higher ground. Always follow official emergency services "
                   "instructions. For real-time emergency alerts, visit your local civil defense agency website.")
 
     # --- UV / sun ---
-    elif any(w in q_lower for w in ['uv','sun','sunny','sunscreen','sunshine']):
-        clear_days = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) <= 3)
-        answer = (f"There are {clear_days} clear or mostly clear day(s) forecast for "
-                  f"{loc_name or 'this location'} this week. On clear days, UV index can be high — "
-                  "apply sunscreen (SPF 30+) if spending time outdoors.")
+    elif any(w in q_lower for w in ['uv','sunny','sunscreen','sunshine','sun']):
+        if no_loc:
+            answer = "Try asking: **'How sunny will it be in Los Angeles this week?'**"
+        else:
+            clear_days = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) <= 3)
+            answer = (f"There are **{clear_days} clear or mostly clear day(s)** forecast for "
+                      f"**{place}** this week. ☀️ On clear days UV index can be high — "
+                      "apply sunscreen (SPF 30+) if spending time outdoors.")
 
     # --- Humidity / fog ---
     elif any(w in q_lower for w in ['humid','fog','mist','visibility','damp','muggy']):
-        fog_days = sum(1 for c in forecast_daily.get('weathercode', []) if c in (45, 48))
-        answer = (f"Fog or mist is expected on {fog_days} day(s) in the next week for "
-                  f"{loc_name or 'this location'}. "
-                  "High humidity and fog reduce visibility — drive with caution on those days.")
+        if no_loc:
+            answer = "Try asking: **'Is it foggy in San Francisco this week?'**"
+        else:
+            fog_days = sum(1 for c in forecast_daily.get('weathercode', []) if c in (45, 48))
+            answer = (f"Fog or mist is expected on **{fog_days} day(s)** in the next week for "
+                      f"**{place}**. High humidity and fog reduce visibility — drive with caution.")
 
     # --- Generic fallback ---
     else:
-        if ctx_lines:
-            answer = (f"I'm your FloodWise weather assistant! Here's a quick summary for "
-                      f"{loc_name or 'this location'}:\n{chr(10).join(ctx_lines[1:4])}\n\n"
-                      "You can ask me about rain, flooding, temperature, wind, snow, forecasts, UV, or evacuation safety!")
+        if not no_loc and ctx_lines:
+            answer = (f"Here's a quick weather summary for **{place}**:\n{chr(10).join(ctx_lines[1:4])}\n\n"
+                      "Ask me about rain, flooding, temperature, wind, snow, ski conditions, UV, or evacuation safety!")
+        elif no_loc:
+            answer = ("I'm your **FloodWise AI** weather assistant! 🌊\n\n"
+                      "Just ask me about any place — no need to search first! Try:\n"
+                      "• *Will it rain in Seattle this week?*\n"
+                      "• *Can I ski in Snoqualmie this weekend?*\n"
+                      "• *Is there flood risk in New Orleans?*\n"
+                      "• *How cold will Denver be this week?*")
         else:
-            answer = ("I'm your FloodWise weather assistant! I can answer questions about rain, flooding, "
-                      "temperature, wind, snow, forecasts, UV, fog, and evacuation safety. "
-                      "Search for a location first to get live data-grounded answers!")
+            answer = (f"I'm your FloodWise weather assistant for **{place}**! "
+                      "Ask me about rain, flooding, temperature, wind, snow, ski conditions, UV, or evacuation safety.")
 
     return jsonify({
         'question': question,
         'answer':   answer,
         'context':  ctx,
+        'resolved_location': loc_name,
     })
 
 

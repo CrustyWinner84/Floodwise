@@ -607,7 +607,7 @@ function toggleAiPanel(force) {
   panel.classList.toggle('open', open);
   overlay.classList.toggle('open', open);
   if (open && $s('ai-msgs').children.length === 0) {
-    appendBotMsg('Hi! I\'m the FloodWise AI assistant \u2014 still in **beta** \uD83D\uDEA7.\n\nI can answer questions about weather, flooding, temperature, wind, snow, forecasts, UV, and evacuation safety for your searched location.\n\nTry one of the suggestions below or type your own question!');
+    appendBotMsg('Hi! I\'m the **FloodWise AI** weather assistant \u2014 in **beta** \uD83D\uDEA7.\n\nYou can ask me about **any place** without searching first! Try:\n\u2022 *Can I ski in Snoqualmie this weekend?*\n\u2022 *Will it rain in Seattle this week?*\n\u2022 *Is there flood risk in New Orleans?*\n\u2022 *How cold will Denver be?*\n\nOr use the suggestions below \u2193');
   }
 }
 
