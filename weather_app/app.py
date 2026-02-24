@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify, render_template, make_response
 import requests
+import re
 import logging
 import os
 import time
@@ -1303,7 +1304,6 @@ def api_ai_weather():
     a place name from the question itself, geocodes it, and grounds the answer
     in live Open-Meteo 7-day forecast data.
     """
-    import re
     question = (request.args.get('q') or request.args.get('question') or '').strip()
     lat      = request.args.get('lat',  type=float)
     lon      = request.args.get('lon',  type=float)
@@ -1314,45 +1314,88 @@ def api_ai_weather():
 
     # --- Try to extract a place name from the question if no coords provided ---
     loc_name = location
+    # Words that look like places but aren't
+    _skip_words = {
+        'the','a','an','my','our','it','this','that','there','here',
+        'today','tomorrow','weekend','week','month','year','weather',
+        'forecast','rain','snow','wind','flood','temperature','there',
+        'skiing','snowboarding','surfing','hiking','camping','climbing',
+        'right','good','safe','ok','okay','fine','bad','great','terrible',
+        'conditions','conditions','area','place','location','town','city',
+        'there','anywhere','somewhere','anywhere','everywhere','nowhere',
+    }
+
+    def _try_geocode(candidate):
+        """Strip punctuation, check skip list, attempt geocode. Returns geo tuple or None."""
+        candidate = re.sub(r'[,\.\?!\s]+$', '', candidate).strip()
+        if not candidate or len(candidate) < 2 or candidate.lower() in _skip_words:
+            return None
+        try:
+            return geocode(candidate)
+        except Exception:
+            return None
+
+    def _extract_place(text):
+        """
+        Walk through ordered trigger patterns (most-specific first).
+        Returns the first candidate that geocodes successfully.
+        """
+        q = text.lower()
+        # Ordered list of (trigger_phrase, grab_words_after)
+        # Each trigger: find trigger in q, slice original text after it, grab 1-3 words
+        triggers = [
+            # specific compound triggers first
+            'skiing at', 'ski at', 'skiing in', 'ski in',
+            'snowboarding at', 'snowboarding in',
+            'planning on skiing at', 'planning on skiing in',
+            'going to', 'travel to', 'fly to', 'drive to', 'visiting',
+            'weather in', 'weather at', 'weather for',
+            'forecast for', 'forecast in',
+            'conditions in', 'conditions at',
+            'how is it in', 'how is it at', 'how is it looking in',
+            # generic single-word triggers last (most false-positive-prone)
+            ' in ', ' at ', ' near ', ' around ',
+        ]
+        for trigger in triggers:
+            idx = q.find(trigger)
+            if idx == -1:
+                continue
+            after = text[idx + len(trigger):].strip()
+            if not after:
+                continue
+            # Grab up to 3 words, stopping at sentence-ending punctuation or stop words
+            STOP = {'this','next','today','tomorrow','now','weekend','week',
+                    'will','is','are','was','be','the','how','what','when',
+                    'where','why','who','all','and','but','or','if','should',
+                    'can','could','would','i','we','you','they','he','she',
+                    'it','my','our','your','their','his','her',}
+            words = re.split(r'[\s,]+', after)
+            place_words = []
+            for w in words[:4]:
+                clean = re.sub(r'[,\.\?!]+$', '', w)
+                if clean.lower() in STOP or not clean:
+                    break
+                place_words.append(clean)
+            candidate = ' '.join(place_words)
+            geo = _try_geocode(candidate)
+            if geo:
+                return geo
+            # Also try first word alone (e.g. "Seattle, WA" → try "Seattle")
+            if len(place_words) > 1:
+                geo = _try_geocode(place_words[0])
+                if geo:
+                    return geo
+        return None
+
     if lat is None or lon is None:
-        # Try explicit location param first
         if location:
             geo = geocode(location)
             if geo:
                 lat, lon, loc_name, _ = geo
         else:
-            # Pattern-based extraction: "in X", "for X", "at X", "near X", "around X"
-            place_match = re.search(
-                r'\b(?:in|for|at|near|around|about|forecast for|weather in|weather at|'  
-                r'weather for|conditions in|conditions at|skiing in|ski in|visit|visiting)'  
-                r'\s+([A-Z][a-zA-Z\s,\.]{2,40}?)(?:\s+(?:this|next|today|tomorrow|now|'  
-                r'weekend|week|on|will|is|are|be|the|a)\b|\?|$)',
-                question, re.IGNORECASE
-            )
-            if not place_match:
-                # Also try bare capitalised place at end: "How is Snoqualmie looking"
-                place_match = re.search(
-                    r'\bHow\s+is\s+(?:it\s+looking\s+in\s+|)([A-Z][a-zA-Z\s,\.]{2,30}?)'
-                    r'(?:\s|\?|$)', question)
-            if not place_match:
-                # "Can I ski Snoqualmie" / "Will Seattle flood"
-                place_match = re.search(
-                    r'\b(?:ski|skiing|visit|flood|rain|snow|storm|travel to|fly to|go to)\s+'
-                    r'([A-Z][a-zA-Z\s]{2,30}?)(?:\s+(?:this|next|on|\?)|\.?$)',
-                    question)
-            if place_match:
-                candidate = place_match.group(1).strip().rstrip(',.?')
-                # Filter out common non-place words
-                skip = {'the', 'a', 'an', 'my', 'our', 'it', 'this', 'that', 'there', 'here',
-                        'today', 'tomorrow', 'weekend', 'week', 'month', 'year', 'weather',
-                        'forecast', 'rain', 'snow', 'wind', 'flood', 'temperature'}
-                if candidate.lower() not in skip and len(candidate) > 2:
-                    try:
-                        geo = geocode(candidate)
-                        if geo:
-                            lat, lon, loc_name, _ = geo
-                    except Exception:
-                        pass
+            geo = _extract_place(question)
+            if geo:
+                lat, lon, loc_name, _ = geo
 
     # Gather live weather context if we have coords
     ctx_lines = []
