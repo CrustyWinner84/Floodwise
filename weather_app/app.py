@@ -404,10 +404,16 @@ STATE_ABBREVS = {
 }
 
 
+# In-memory FEMA cache keyed by state abbreviation — 24 h TTL
+_fema_cache: dict = {}  # {state_abbrev: (fetched_at_datetime, result_dict)}
+_FEMA_CACHE_TTL_S = 86400  # 24 hours
+
+
 def get_fema_flood_history(lat: float, lon: float):
     """Query OpenFEMA API for historical flood disaster declarations near a location.
     Completely free, no API key required.
     Returns up to 5 most recent flood events and a risk score (0-35).
+    Results are cached per-state for 24 hours to minimise Azure → FEMA round-trips.
     """
     try:
         # Reverse geocode using BigDataCloud (free, no key, fast, no Azure blocks)
@@ -428,7 +434,15 @@ def get_fema_flood_history(lat: float, lon: float):
                 'historical_risk_score': 0
             }
 
-        # Query OpenFEMA for flood disasters in this state
+        # --- Check in-memory cache first ---
+        now = datetime.utcnow()
+        if state_abbrev in _fema_cache:
+            cached_at, cached_result = _fema_cache[state_abbrev]
+            if (now - cached_at).total_seconds() < _FEMA_CACHE_TTL_S:
+                logger.debug('FEMA cache hit for state %s', state_abbrev)
+                return cached_result
+
+        # --- Fetch from OpenFEMA ---
         fema_url = 'https://www.fema.gov/api/open/v2/disasterDeclarationsSummaries'
         fema_params = {
             '$filter': f"state eq '{state_abbrev}' and incidentType eq 'Flood'",
@@ -437,7 +451,8 @@ def get_fema_flood_history(lat: float, lon: float):
             '$select': 'disasterNumber,declarationDate,declarationTitle,incidentType,state,designatedArea,incidentBeginDate,incidentEndDate'
         }
         fema_headers = {
-            'User-Agent': 'Mozilla/5.0 (compatible; FloodWiseWeatherApp/1.0; +https://floodwise.app)'
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/json',
         }
         fema_resp = requests.get(fema_url, params=fema_params, headers=fema_headers, timeout=15)
         fema_resp.raise_for_status()
@@ -448,7 +463,7 @@ def get_fema_flood_history(lat: float, lon: float):
         recent = [e for e in events if (e.get('declarationDate') or '') >= cutoff]
         hist_score = min(35, len(recent) * 7)
 
-        return {
+        result = {
             'available': True,
             'state': state_name,
             'state_abbrev': state_abbrev,
@@ -457,8 +472,11 @@ def get_fema_flood_history(lat: float, lon: float):
             'historical_risk_score': hist_score,
             'events': events[:5]
         }
+        # Store in cache
+        _fema_cache[state_abbrev] = (now, result)
+        return result
     except Exception as e:
-        logger.debug('FEMA flood history lookup failed: %s', e)
+        logger.warning('FEMA flood history lookup failed: %s', e)
         return {'available': False, 'events': [], 'historical_risk_score': 0,
                 'note': 'FEMA flood history data temporarily unavailable.'}
 
@@ -1260,11 +1278,13 @@ def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
     geo_base   = elevation_risk + water_risk + fema_base + usgs_base  # max ~48
 
     results = []
-    for i, date_str in enumerate(times[:14]):
+    # Skip day 0 (today) — show the 14 days *after* the current date (days 1–14)
+    for idx, date_str in enumerate(times[1:15]):
+        i = idx + 1  # actual index into the full forecast arrays
         p_today = float(precip[i]) if i < len(precip) and precip[i] is not None else 0.0
         p_prob  = float(precip_p[i]) if i < len(precip_p) and precip_p[i] is not None else 50.0
 
-        # 7-day cumulative (within forecast window)
+        # 7-day cumulative (including today's carry-over from day 0)
         window_start = max(0, i - 6)
         cum = sum(float(v) for v in precip[window_start:i + 1] if v is not None)
 
