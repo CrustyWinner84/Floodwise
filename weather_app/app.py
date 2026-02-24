@@ -3,6 +3,7 @@ import requests
 import re
 import logging
 import os
+import sqlite3 as _sqlite3
 import time
 import functools
 from datetime import datetime, timedelta
@@ -2164,3 +2165,168 @@ if __name__ == '__main__':
     else:
         logger.info('Starting server on %s:%s (debug=%s)', args.host, args.port, args.debug)
         app.run(host=args.host, port=args.port, debug=args.debug)
+
+
+# ===========================================================================
+# Community Experiences  — storage, vocabulary enhancer, routes
+# ===========================================================================
+
+_EXP_DB = os.path.join(os.environ.get('HOME', '/tmp'), 'floodwise_experiences.db')
+
+
+def _exp_db():
+    conn = _sqlite3.connect(_EXP_DB)
+    conn.row_factory = _sqlite3.Row
+    return conn
+
+
+def _init_exp_db():
+    with _exp_db() as db:
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS experiences (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT    DEFAULT "Anonymous",
+                location     TEXT    DEFAULT "",
+                exp_date     TEXT    DEFAULT "",
+                story        TEXT    NOT NULL,
+                enhanced     TEXT    DEFAULT "",
+                impact       INTEGER DEFAULT 3,
+                created_at   TEXT    DEFAULT (datetime("now"))
+            )
+        ''')
+        db.commit()
+
+
+try:
+    _init_exp_db()
+except Exception as _e:
+    logger.warning('Could not init experiences DB: %s', _e)
+
+
+def enhance_vocabulary(text: str) -> str:
+    """Enhance vocabulary of a community experience entry with more descriptive language."""
+    swaps = [
+        (r'\bsaw\b',              'witnessed'),
+        (r'\bvery\b',             'remarkably'),
+        (r'\breally\b',           'genuinely'),
+        (r'\bsuper\b',            'extraordinarily'),
+        (r'\bscary\b',            'deeply unsettling'),
+        (r'\bscared\b',           'profoundly alarmed'),
+        (r'\bfrightening\b',      'harrowing'),
+        (r'\bworried\b',          'considerably concerned'),
+        (r'\bworry\b',            'concern'),
+        (r'\bhelped\b',           'proved invaluable'),
+        (r'\bhelp\b',             'assistance'),
+        (r'\baccurate\b',         'remarkably precise'),
+        (r'\bquickly\b',          'rapidly'),
+        (r'\bfast\b',             'swiftly'),
+        (r'\bshowed\b',           'clearly demonstrated'),
+        (r'\bshows\b',            'illustrates'),
+        (r'\btold me\b',          'indicated'),
+        (r'\bwarned\b',           'proactively alerted'),
+        (r'\bwarning\b',          'critical advisory'),
+        (r'\bgood\b',             'commendable'),
+        (r'\bgreat\b',            'outstanding'),
+        (r'\bamazing\b',          'remarkable'),
+        (r'\bawesome\b',          'impressive'),
+        (r'\bincredible\b',       'extraordinary'),
+        (r'\buseful\b',           'invaluable'),
+        (r'\bflooded\b',          'severely inundated'),
+        (r'\bflooding\b',         'inundation'),
+        (r'\bheavy rain\b',       'intense precipitation'),
+        (r'\bheavy rainfall\b',   'torrential rainfall'),
+        (r'\brain\b',             'precipitation'),
+        (r'\bstorm\b',            'meteorological event'),
+        (r'\brose\b',             'surged'),
+        (r'\bwent up\b',          'escalated'),
+        (r'\bfound out\b',        'discovered'),
+        (r'\bfound\b',            'discovered'),
+        (r'\bthought\b',          'recognized'),
+        (r'\bthink\b',            'believe'),
+        (r'\bstuff\b',            'conditions'),
+        (r'\bthings\b',           'circumstances'),
+        (r'\bthing\b',            'aspect'),
+        (r'\bgot\b',              'encountered'),
+        (r'\bused\b',             'utilized'),
+        (r'\buse\b',              'utilize'),
+        (r'\bchecked\b',          'consulted'),
+        (r'\bcheck\b',            'consult'),
+        (r'\bapp\b',              'application'),
+        (r'\bwebsite\b',          'platform'),
+        (r'\binfo\b',             'information'),
+        (r'\bstayed safe\b',      "remained out of harm's way"),
+        (r'\beveryone\b',         'the entire community'),
+        (r'\bneighborhood\b',     'surrounding area'),
+        (r'\bneighbours?\b',      'neighbouring residents'),
+        (r'\bhouse\b',            'residence'),
+        (r'\bprepared\b',         'well-prepared'),
+        (r'\bevacuated\b',        'safely evacuated'),
+        (r'\bescaped\b',          'successfully evacuated'),
+        (r'\bsafe\b',             'secure'),
+        (r'\bimpressed\b',        'thoroughly impressed'),
+    ]
+    result = text
+    for pattern, replacement in swaps:
+        result = re.sub(pattern, replacement, result, flags=re.IGNORECASE)
+    # Capitalise first letter of each sentence
+    sentences = re.split(r'(?<=[.!?])\s+', result.strip())
+    sentences = [s[0].upper() + s[1:] if s else s for s in sentences]
+    result = ' '.join(sentences)
+    if result and result[-1] not in '.!?':
+        result += '.'
+    return result
+
+
+@app.route('/experiences')
+def page_experiences():
+    return render_template('experiences.html')
+
+
+@app.route('/api/experiences', methods=['GET'])
+def api_experiences_get():
+    try:
+        with _exp_db() as db:
+            rows = db.execute(
+                'SELECT * FROM experiences ORDER BY created_at DESC LIMIT 100'
+            ).fetchall()
+        return jsonify([dict(r) for r in rows])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/experiences', methods=['POST'])
+def api_experiences_post():
+    data = request.get_json(silent=True) or {}
+    story = (data.get('story') or '').strip()
+    if not story:
+        return jsonify({'error': 'story is required'}), 400
+    name     = (data.get('name')     or 'Anonymous').strip()[:80]
+    location = (data.get('location') or '').strip()[:120]
+    exp_date = (data.get('exp_date') or '').strip()[:20]
+    impact   = max(1, min(5, int(data.get('impact', 3))))
+    enhanced = enhance_vocabulary(story)
+    try:
+        with _exp_db() as db:
+            cur = db.execute(
+                'INSERT INTO experiences (name, location, exp_date, story, enhanced, impact) VALUES (?,?,?,?,?,?)',
+                (name, location, exp_date, story, enhanced, impact)
+            )
+            db.commit()
+            new_id = cur.lastrowid
+        return jsonify({'id': new_id, 'enhanced': enhanced}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/reword', methods=['POST'])
+def api_reword():
+    data = request.get_json(silent=True) or {}
+    text = (data.get('text') or '').strip()
+    if not text:
+        return jsonify({'error': 'text is required'}), 400
+    return jsonify({'enhanced': enhance_vocabulary(text)})
+
+
+@app.route('/flood-cam')
+def page_flood_cam():
+    return render_template('flood_cam.html')

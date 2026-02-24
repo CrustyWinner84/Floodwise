@@ -39,6 +39,20 @@
     .app-header { text-align: center; margin-bottom: 2rem; position: relative; z-index: 2; }
     .app-header h1 { font-size: 2.2rem; letter-spacing: 1px; color: #b8d9ff; }
     .app-header p { color: #7cb8f5; font-size: 0.95rem; margin-top: 0.35rem; }
+    /* ── Top nav ── */
+    .top-nav {
+      display: flex; align-items: center; justify-content: center;
+      gap: 0.6rem; margin-bottom: 1.5rem; flex-wrap: wrap; position: relative; z-index: 2;
+    }
+    .top-nav a {
+      text-decoration: none; color: #7cb8f5; font-size: 0.85rem;
+      padding: 0.35rem 0.9rem; border-radius: 20px;
+      border: 1px solid rgba(100,160,255,0.2);
+      transition: background .2s, color .2s;
+    }
+    .top-nav a.active, .top-nav a:hover {
+      background: rgba(100,160,255,0.15); color: #b8d9ff;
+    }
     .search-card {
       background: rgba(5,15,50,0.6);
       border: 1px solid rgba(100,160,255,0.22);
@@ -374,6 +388,12 @@
     <h1>&#x1F30A; FloodWise</h1>
     <p>Enter a place and date &mdash; get the full flood risk &amp; weather report on one page</p>
   </header>
+
+  <nav class="top-nav">
+    <a href="/" class="active">🌊 Flood Risk Report</a>
+    <a href="/experiences">💬 Community Stories</a>
+    <a href="/flood-cam">🎥 Flood Cam</a>
+  </nav>
 
   <div class="search-card">
     <div class="search-row">
