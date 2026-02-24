@@ -436,7 +436,10 @@ def get_fema_flood_history(lat: float, lon: float):
             '$top': 10,
             '$select': 'disasterNumber,declarationDate,declarationTitle,incidentType,state,designatedArea,incidentBeginDate,incidentEndDate'
         }
-        fema_resp = requests.get(fema_url, params=fema_params, timeout=8)
+        fema_headers = {
+            'User-Agent': 'Mozilla/5.0 (compatible; FloodWiseWeatherApp/1.0; +https://floodwise.app)'
+        }
+        fema_resp = requests.get(fema_url, params=fema_params, headers=fema_headers, timeout=15)
         fema_resp.raise_for_status()
         events = fema_resp.json().get('DisasterDeclarationsSummaries', [])
 
@@ -1198,7 +1201,10 @@ def api_flood_risk_date():
         return jsonify({'error': 'flood risk calculation failed', 'detail': str(e)}), 500
 
 def get_forecast_weather(lat: float, lon: float, days: int = 16):
-    """Fetch daily forecast from Open-Meteo for up to 16 days ahead (free, no key)."""
+    """Fetch daily forecast from Open-Meteo for up to 16 days ahead (free, no key).
+    Retries up to 3 times to handle transient Azure → Open-Meteo timeouts.
+    """
+    import time as _time
     url = 'https://api.open-meteo.com/v1/forecast'
     params = {
         'latitude': lat,
@@ -1208,9 +1214,18 @@ def get_forecast_weather(lat: float, lon: float, days: int = 16):
         'temperature_unit': 'celsius',
         'timezone': 'UTC',
     }
-    resp = requests.get(url, params=params, timeout=10)
-    resp.raise_for_status()
-    return resp.json().get('daily', {})
+    last_exc = None
+    for attempt in range(3):
+        try:
+            resp = requests.get(url, params=params, timeout=20)
+            resp.raise_for_status()
+            return resp.json().get('daily', {})
+        except Exception as exc:
+            last_exc = exc
+            logger.warning('Open-Meteo forecast attempt %d failed: %s', attempt + 1, exc)
+            if attempt < 2:
+                _time.sleep(3)
+    raise last_exc
 
 
 def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
@@ -1307,8 +1322,8 @@ def api_forecast_risk():
             f_fc   = pool.submit(get_forecast_weather, lat, lon, 16)
             f_fema = pool.submit(get_fema_flood_history, lat, lon)
             f_usgs = pool.submit(get_usgs_stream_gauge, lat, lon)
-            # Forecast is mandatory — let it raise if it fails
-            forecast_daily = f_fc.result(timeout=12)
+            # Forecast is mandatory — allow up to 70s for 3 retry attempts
+            forecast_daily = f_fc.result(timeout=70)
             # FEMA/USGS are optional — degrade gracefully if they fail
             try:
                 fema_data = f_fema.result(timeout=10)

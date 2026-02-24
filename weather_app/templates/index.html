@@ -398,8 +398,8 @@
       <div class="chart-x-labels" id="chart-labels"></div>
     </div>
     <div class="section">
-      <div class="section-heading">&#x1F4F7; Nearby Live Camera Feed</div>
-      <p style="font-size:0.82rem;color:#7cb8f5;margin-bottom:0.4rem">Live webcam map for your area &mdash; click any camera icon &#x1F3A5; to view the stream. Powered by Windy.</p>
+      <div class="section-heading">&#x1F4F7; Live Webcams &amp; Rain Radar</div>
+      <p style="font-size:0.82rem;color:#7cb8f5;margin-bottom:0.4rem">Left: click any camera pin to watch a live stream &mdash; Right: live rain radar for your area. Powered by Windy.</p>
       <div class="cam-wrap" id="cam-wrap"><p class="no-data" style="padding:1rem">Search a location to load nearby cameras.</p></div>
     </div>
     <div class="section">
@@ -608,44 +608,25 @@ async function loadForecast(lat, lon, elev) {
 }
 
 function renderCameraFeed(lat, lon, locName) {
-  var mapUrl = 'https://embed.windy.com/embed2.html?lat=' + lat + '&lon=' + lon +
+  var webcamUrl = 'https://embed.windy.com/embed2.html?lat=' + lat + '&lon=' + lon +
     '&zoom=11&level=surface&overlay=webcams&product=ecmwf&menu=&message=true' +
     '&marker=true&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1';
-  var ecLat = lat.toFixed(4), ecLon = lon.toFixed(4);
-  var earthcamUrl = 'https://www.earthcam.com/network/?lat=' + ecLat + '&lng=' + ecLon;
+  var radarUrl = 'https://embed.windy.com/embed2.html?lat=' + lat + '&lon=' + lon +
+    '&zoom=7&level=surface&overlay=rain&product=ecmwf&menu=&message=true' +
+    '&marker=true&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1';
 
   $s('cam-wrap').innerHTML =
     '<div class="cam-split">' +
       '<div class="cam-pane">' +
-        '<div class="cam-pane-label">&#x1F4CD; Webcam Map &mdash; Click a pin to play</div>' +
-        '<iframe src="' + mapUrl + '" height="300" allowfullscreen loading="lazy"></iframe>' +
+        '<div class="cam-pane-label">&#x1F4CD; Live Webcams &mdash; Click a pin to play</div>' +
+        '<iframe src="' + webcamUrl + '" height="300" allowfullscreen loading="lazy"></iframe>' +
       '</div>' +
-      '<div class="cam-pane" id="ec-pane">' +
-        '<div class="cam-pane-label">&#x1F4F9; EarthCam Live Feed</div>' +
-        '<iframe src="' + earthcamUrl + '" height="300" allowfullscreen loading="lazy" id="ec-frame"></iframe>' +
+      '<div class="cam-pane">' +
+        '<div class="cam-pane-label">&#x1F327;&#xFE0F; Live Rain Radar</div>' +
+        '<iframe src="' + radarUrl + '" height="300" allowfullscreen loading="lazy"></iframe>' +
       '</div>' +
     '</div>' +
-    '<p style="font-size:0.72rem;color:#4a6a8a;margin-top:0.5rem">Left: click any &#x1F4F7; pin to watch a live stream. Right: EarthCam network feeds. ' +
-    'If the right panel is blank, <a href="https://www.earthcam.com/map/#' + ecLat + ',' + ecLon + ',12z" target="_blank" rel="noopener" style="color:#7cb8f5">open EarthCam map &#x2197;</a></p>';
-
-  // After 4s check if EarthCam iframe blocked (cross-origin throws) and swap in fallback
-  setTimeout(function() {
-    var ef = document.getElementById('ec-frame');
-    var ep = document.getElementById('ec-pane');
-    if (!ef || !ep) return;
-    var blocked = false;
-    try { blocked = !ef.contentDocument || ef.contentDocument.body.innerHTML.trim() === ''; }
-    catch(e) { blocked = true; }
-    if (blocked) {
-      var ph = document.createElement('div');
-      ph.className = 'cam-placeholder';
-      ph.innerHTML = '<span style="font-size:2rem">&#x1F4F9;</span>' +
-        '<span style="color:#7cb8f5">EarthCam cannot be embedded</span>' +
-        '<a href="https://www.earthcam.com/map/#' + ecLat + ',' + ecLon + ',12z" target="_blank" rel="noopener" ' +
-        'style="background:#0d3b73;border:1px solid rgba(100,160,255,0.3);border-radius:8px;padding:0.45rem 1.1rem;color:#c5e0ff;text-decoration:none;font-size:0.85rem">&#x1F310; Open EarthCam Map &#x2197;</a>';
-      ef.replaceWith(ph);
-    }
-  }, 4000);
+    '<p style="font-size:0.72rem;color:#4a6a8a;margin-top:0.5rem">Left: click any &#x1F4F7; pin to watch a nearby live stream &mdash; Right: live rain &amp; precipitation radar. Both powered by Windy.</p>';
 }
 
 // --------------- AI Chat Panel ---------------------------------------
