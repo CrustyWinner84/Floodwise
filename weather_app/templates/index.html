@@ -3,6 +3,9 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate"/>
+  <meta http-equiv="Pragma" content="no-cache"/>
+  <meta http-equiv="Expires" content="0"/>
   <title>FloodWise</title>
   <link href="https://fonts.googleapis.com/css2?family=McLaren&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
@@ -301,7 +304,7 @@
   <svg viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg" width="34" height="34">
     <defs><linearGradient id="blg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4ab8e8"/><stop offset="100%" stop-color="#5ac8a0"/></linearGradient></defs>
     <path d="M6 33Q3 33 3 28Q3 23 9 23Q10 18 16 17Q23 16 26 20Q28 18 32 19Q38 19 38 25Q41 25 41 29Q41 34 36 34Z" fill="url(#blg)"/>
-    <text x="9" y="31" font-family="Arial Black,sans-serif" font-size="11" font-weight="900" fill="#1a3a5c">AI</text>
+    <text x="9" y="31" font-family="Arial Black,sans-serif" font-size="11" font-weight="900" fill="#ffffff">AI</text>
     <circle cx="42" cy="14" r="6" fill="#f59e0b"/>
     <path d="M5 39Q11 35 17 39Q23 43 29 39Q35 35 42 39" stroke="#3b9edd" stroke-width="2" fill="none" stroke-linecap="round"/>
   </svg>
@@ -317,7 +320,7 @@
     <svg class="ai-logo-wrap" viewBox="0 0 120 115" xmlns="http://www.w3.org/2000/svg">
       <defs><linearGradient id="clg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4ab8e8"/><stop offset="100%" stop-color="#5ac8a0"/></linearGradient></defs>
       <path d="M14 75Q8 75 8 65Q8 55 20 55Q22 43 35 41Q51 39 57 49Q63 44 73 46Q87 46 87 58Q93 58 93 66Q93 76 81 76Z" fill="url(#clg)"/>
-      <text x="22" y="71" font-family="Arial Black,sans-serif" font-size="24" font-weight="900" fill="#1a3a5c" letter-spacing="1">AI</text>
+      <text x="22" y="71" font-family="Arial Black,sans-serif" font-size="24" font-weight="900" fill="#ffffff" letter-spacing="1">AI</text>
       <circle cx="97" cy="34" r="13" fill="#f59e0b"/>
       <line x1="97" y1="14" x2="97" y2="19" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"/>
       <line x1="111" y1="20" x2="108" y2="23" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"/>
@@ -404,7 +407,7 @@
     </div>
     <div class="section" id="evac-section" style="display:none">
       <div class="section-heading">&#x1F6A8; Smart Evacuation Routes</div>
-      <p style="font-size:0.85rem;color:#ffaaaa;margin-bottom:0.9rem">
+      <p style="font-size:0.85rem;color:#7cb8f5;margin-bottom:0.9rem">
         Up to 3 road-based escape routes to higher ground &mdash; scored by elevation gain and computed via OpenStreetMap routing.
       </p>
       <div style="margin-bottom:0.75rem">
@@ -419,7 +422,7 @@
     </div>
     <div class="section">
       <div class="section-heading">&#x1F5FA;&#xFE0F; Live Precipitation Map (Windy)</div>
-      <p style="font-size:0.82rem;color:#ffaaaa;margin-bottom:0.5rem;">Real-time &amp; forecast precipitation overlay</p>
+      <p style="font-size:0.82rem;color:#7cb8f5;margin-bottom:0.5rem;">Real-time &amp; forecast precipitation overlay</p>
       <div class="windy-wrap" id="windy-wrap"></div>
     </div>
   </div>
@@ -554,7 +557,7 @@ function renderWindy(url) {
 }
 
 // --------------- 14-Day Forecast + Camera ----------------------------
-var AI_LOGO_MINI = '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bml" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4ab8e8"/><stop offset="100%" stop-color="#5ac8a0"/></linearGradient></defs><path d="M3 24Q1 24 1 20Q1 16 6 16Q7 12 12 11Q17 10 19 14Q21 12 24 13Q29 13 29 18Q31 18 31 21Q31 25 27 25Z" fill="url(#bml)"/><text x="5" y="23" font-family="Arial Black" font-size="9" font-weight="900" fill="#1a3a5c">AI</text><circle cx="30" cy="8" r="5" fill="#f59e0b"/><path d="M3 28Q8 25 13 28Q18 31 23 28Q28 25 33 28" stroke="#3b9edd" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>';
+var AI_LOGO_MINI = '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bml" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4ab8e8"/><stop offset="100%" stop-color="#5ac8a0"/></linearGradient></defs><path d="M3 24Q1 24 1 20Q1 16 6 16Q7 12 12 11Q17 10 19 14Q21 12 24 13Q29 13 29 18Q31 18 31 21Q31 25 27 25Z" fill="url(#bml)"/><text x="5" y="23" font-family="Arial Black" font-size="9" font-weight="900" fill="#ffffff">AI</text><circle cx="30" cy="8" r="5" fill="#f59e0b"/><path d="M3 28Q8 25 13 28Q18 31 23 28Q28 25 33 28" stroke="#3b9edd" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>';
 
 function renderForecast(days) {
   if (!days || !days.length) { $s('forecast-grid').innerHTML = '<p class="no-data">Forecast data unavailable.</p>'; return; }
