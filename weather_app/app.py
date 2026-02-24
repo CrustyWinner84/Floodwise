@@ -1434,7 +1434,7 @@ def api_ai_weather():
     if any(w in q_lower for w in ['ski','skiing','snowboard','slope','powder','resort','lift']):
         if no_loc:
             answer = ("I couldn't identify a specific location in your question. "
-                      "Try asking: **'Can I ski in Snoqualmie this weekend?'** and I'll check the forecast!")
+                      "Try including a place name, e.g. **'Will it snow in Tahoe this weekend?'**")
         else:
             snow_days  = [i for i, c in enumerate(forecast_daily.get('weathercode', []))
                           if c is not None and int(c) in range(71, 78)]
@@ -1589,7 +1589,6 @@ def api_ai_weather():
             answer = ("I'm your **FloodWise AI** weather assistant! 🌊\n\n"
                       "Just ask me about any place — no need to search first! Try:\n"
                       "• *Will it rain in Seattle this week?*\n"
-                      "• *Can I ski in Snoqualmie this weekend?*\n"
                       "• *Is there flood risk in New Orleans?*\n"
                       "• *How cold will Denver be this week?*")
         else:
