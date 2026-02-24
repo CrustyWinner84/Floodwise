@@ -471,13 +471,12 @@ function fmtK(v) { return v != null ? (+v).toFixed(1) + ' km/h': '—'; }
 })();
 
 var FACTORS = [
-  { key:'base_location_risk',       label:'Base Location Risk',       max:50 },
-  { key:'precipitation_today_risk', label:'Precipitation Today',      max:30 },
-  { key:'cumulative_week_risk',     label:'7-Day Cumulative Rain',    max:25 },
-  { key:'water_proximity_risk',     label:'Water Body Proximity',     max:25 },
-  { key:'elevation_risk',           label:'Elevation (low = risky)',  max:20 },
-  { key:'fema_historical_risk',     label:'Historical Floods (FEMA)', max:35 },
-  { key:'usgs_gauge_risk',          label:'Live Stream Gauge (USGS)', max:35 }
+  { key:'precipitation_today_risk', label:'Precipitation Today',        max:30 },
+  { key:'cumulative_week_risk',     label:'7-Day Cumulative Rain',      max:25 },
+  { key:'water_proximity_risk',     label:'Water Body Proximity (OSM)', max:20 },
+  { key:'terrain_elevation_risk',   label:'Terrain & Elevation',        max:20 },
+  { key:'fema_historical_risk',     label:'Historical Floods (FEMA)',   max:20 },
+  { key:'usgs_gauge_risk',          label:'Live Stream Gauge (USGS)',   max:20 }
 ];
 
 function renderLocation(d) {

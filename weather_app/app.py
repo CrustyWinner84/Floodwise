@@ -437,6 +437,10 @@ _HIST_CACHE_TTL_S = 21600  # 6 hours
 _usgs_cache: dict = {}  # {(lat2, lon2): (epoch_ts, result)}
 _USGS_CACHE_TTL_S = 300  # 5 minutes
 
+# Water-proximity cache — 24 h TTL, keyed by rounded (lat, lon)
+_water_cache: dict = {}  # {(lat2, lon2): (epoch_ts, result)}
+_WATER_CACHE_TTL_S = 86400  # 24 hours
+
 # Static per-state flood risk scores derived from FEMA public records (2019-2024).
 # Used as an instant fallback when fema.gov is unreachable (Akamai blocks cloud IPs).
 _FEMA_STATE_STATIC: dict = {
@@ -465,13 +469,15 @@ def get_fema_flood_history(lat: float, lon: float):
     (Azure datacenter IPs are blocked by Akamai CDN on www.fema.gov).
     Results are cached per-state for 24 hours to minimise round-trips.
     """
+    state_name   = ''
+    state_abbrev = ''
     try:
         # Reverse geocode using BigDataCloud (free, no key, fast, no Azure blocks)
         geo_url = 'https://api.bigdatacloud.net/data/reverse-geocode-client'
         params = {'latitude': lat, 'longitude': lon, 'localityLanguage': 'en'}
         resp = requests.get(geo_url, params=params, timeout=5)
         resp.raise_for_status()
-        geo_data = resp.json()
+        geo_data     = resp.json()
         country_code = geo_data.get('countryCode', '')
         state_name   = geo_data.get('principalSubdivision', '')
         state_abbrev = STATE_ABBREVS.get(state_name, '')
@@ -540,29 +546,20 @@ def get_fema_flood_history(lat: float, lon: float):
     except Exception as e:
         logger.warning('FEMA API unreachable (%s) — using static state-level fallback', e)
         # fema.gov is blocked from Azure datacenter IPs (Akamai CDN).
-        # Serve static per-state flood frequency scores so the section is never blank.
-        try:
-            geo_url = 'https://api.bigdatacloud.net/data/reverse-geocode-client'
-            gr = requests.get(geo_url, params={'latitude': lat, 'longitude': lon, 'localityLanguage': 'en'}, timeout=4)
-            gd = gr.json()
-            cc = gd.get('countryCode', '')
-            sn = gd.get('principalSubdivision', '')
-            sa = STATE_ABBREVS.get(sn, '')
-            if cc == 'US' and sa:
-                static_score = _FEMA_STATE_STATIC.get(sa, 7)
-                return {
-                    'available': True,
-                    'state': sn,
-                    'state_abbrev': sa,
-                    'historical_risk_score': static_score,
-                    'events': [],
-                    'recent_5yr_count': None,
-                    'total_flood_declarations': None,
-                    'note': 'Live FEMA data unavailable — showing historical flood frequency estimate for this state.'
-                }
-        except Exception:
-            pass
+        # state_name/state_abbrev are already extracted above — no extra network call needed.
+        if state_abbrev:
+            return {
+                'available': True,
+                'state': state_name,
+                'state_abbrev': state_abbrev,
+                'historical_risk_score': _FEMA_STATE_STATIC.get(state_abbrev, 7),
+                'events': [],
+                'recent_5yr_count': None,
+                'total_flood_declarations': None,
+                'note': 'Live FEMA data unavailable — showing historical flood frequency estimate for this state.'
+            }
         return {'available': False, 'events': [], 'historical_risk_score': 0,
+                'note': 'FEMA flood history data unavailable for this location.'}
                 'note': 'FEMA flood history data unavailable for this location.'}
 
 
@@ -671,40 +668,76 @@ def get_flood_risk(lat: float, lon: float):
         return {'error': 'flood risk calculation failed', 'detail': str(e)}
 
 
-def is_near_water_body(lat: float, lon: float):
-    """Simple heuristic to detect if location is near a water body.
-    In production, use OpenStreetMap data or a dedicated API.
+def get_water_proximity_score(lat: float, lon: float):
+    """Query OSM Overpass API for rivers/water bodies near the given location.
+    Returns (score 0-20, feature_name_or_None, distance_m_or_None).
+    Scoring: <300 m → 20 pts, <800 m → 15, <1500 m → 8, <2500 m → 4, else → 0.
+    Results are cached 24 h per rounded (lat, lon) to avoid repeated API hits.
     """
-    # Known water bodies (lakes, rivers, coastal areas) - simplified
-    water_zones = [
-        {'name': 'Venice', 'lat': 45.4, 'lon': 12.3, 'radius': 0.5},
-        {'name': 'Amsterdam', 'lat': 52.37, 'lon': 4.9, 'radius': 0.5},
-        {'name': 'New Orleans', 'lat': 29.95, 'lon': -90.07, 'radius': 1.0},
-        {'name': 'Miami', 'lat': 25.76, 'lon': -80.19, 'radius': 1.0},
-        {'name': 'Bangkok', 'lat': 13.73, 'lon': 100.50, 'radius': 1.0},
-        {'name': 'Snohomish', 'lat': 47.91, 'lon': -122.10, 'radius': 0.8},
-    ]
-    
-    for zone in water_zones:
-        dist = ((lat - zone['lat'])**2 + (lon - zone['lon'])**2)**0.5
-        if dist < zone['radius']:
-            return True, zone['name']
-    
-    return False, None
+    import time as _t
+    _key = (round(lat, 2), round(lon, 2))
+    _now = _t.time()
+    if _key in _water_cache:
+        _ts, _cached = _water_cache[_key]
+        if _now - _ts < _WATER_CACHE_TTL_S:
+            return _cached
+
+    _result = (0, None, None)
+    try:
+        _overpass = 'https://overpass-api.de/api/interpreter'
+        _query = (
+            '[out:json][timeout:5];'
+            '('
+            f'way["waterway"~"^(river|stream|canal|drain)$"](around:2500,{lat},{lon});'
+            f'way["natural"="water"](around:2500,{lat},{lon});'
+            f'relation["natural"="water"](around:2500,{lat},{lon});'
+            ');'
+            'out center 10;'
+        )
+        _resp = requests.post(_overpass, data={'data': _query}, timeout=6)
+        _resp.raise_for_status()
+        _elements = _resp.json().get('elements', [])
+        if _elements:
+            _min_dist = float('inf')
+            _closest_name = None
+            for _el in _elements:
+                _c = _el.get('center', {})
+                _clat = _c.get('lat') or _el.get('lat')
+                _clon = _c.get('lon') or _el.get('lon')
+                if _clat and _clon:
+                    _dist_m = ((lat - _clat) ** 2 + (lon - _clon) ** 2) ** 0.5 * 111000
+                    if _dist_m < _min_dist:
+                        _min_dist = _dist_m
+                        _closest_name = (
+                            _el.get('tags', {}).get('name')
+                            or _el.get('tags', {}).get('waterway')
+                            or 'water body'
+                        )
+            if _min_dist < 300:    _score = 20
+            elif _min_dist < 800:  _score = 15
+            elif _min_dist < 1500: _score = 8
+            elif _min_dist < 2500: _score = 4
+            else:                  _score = 0
+            _result = (_score, _closest_name, round(_min_dist))
+    except Exception as _e:
+        logger.debug('Water proximity OSM lookup failed: %s', _e)
+
+    _water_cache[_key] = (_now, _result)
+    return _result
 
 
 def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_data: dict,
-                                   elevation_m=None, fema_data=None, usgs_data=None):
+                                   elevation_m=None, fema_data=None, usgs_data=None,
+                                   water_data=None):
     """Calculate flood risk for a specific date.
-    Factors (max pts / % of 220 uncapped total):
-      Base location risk   : 50 pts (22.7%)
-      Precipitation today  : 30 pts (13.6%)
-      7-day cumulative     : 25 pts (11.4%)
-      Water body proximity : 25 pts (11.4%)
-      Elevation            : 20 pts  (9.1%)
-      FEMA historical      : 35 pts (15.9%)
-      USGS live gauge      : 35 pts (15.9%)
-      Total uncapped: 220  -> capped at 100
+    Factors (max pts):
+      Precipitation today  : 30 pts  (dynamic — primary driver)
+      7-day cumulative     : 25 pts  (dynamic)
+      Water proximity (OSM): 20 pts  (real waterway lookup, graduated by distance)
+      Terrain / elevation  : 20 pts  (static)
+      FEMA historical      : 20 pts  (capped)
+      USGS live gauge      : 20 pts  (capped)
+      Total uncapped: 135  → capped at 100
     """
     try:
         times = daily_data.get('time', [])
@@ -714,63 +747,54 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
             return None
 
         date_idx = times.index(date_str)
-        precip_today = precip[date_idx] if date_idx < len(precip) else 0
-
-        # Base risk from location (max 50)
-        base_risk = get_flood_risk(lat, lon)
-        base_score = base_risk.get('risk_score', 15)
+        precip_today = float(precip[date_idx]) if date_idx < len(precip) and precip[date_idx] is not None else 0.0
 
         # 7-day cumulative precipitation
         window_start = max(0, date_idx - 6)
-        cumulative_precip = sum(precip[window_start:date_idx + 1])
+        cumulative_precip = sum(float(v) for v in precip[window_start:date_idx + 1] if v is not None)
 
-        # Water body proximity (max 25)
-        near_water, water_name = is_near_water_body(lat, lon)
-
-        # Today's precipitation (max 30)
-        precip_risk_factor = 0
-        if precip_today > 50:
-            precip_risk_factor = 30
-        elif precip_today > 20:
-            precip_risk_factor = 15
-        elif precip_today > 5:
-            precip_risk_factor = 5
-
-        # 7-day cumulative (max 25)
-        cumulative_risk_factor = 0
-        if cumulative_precip > 150:
-            cumulative_risk_factor = 25
-        elif cumulative_precip > 80:
-            cumulative_risk_factor = 15
-        elif cumulative_precip > 40:
-            cumulative_risk_factor = 5
-
-        # Water proximity (max 25)
-        water_proximity_risk = 25 if near_water else 0
-
-        # Elevation (max 20)
-        elevation_risk = 0
+        # --- Terrain / elevation risk (max 20) ---
+        terrain_risk = 0
         try:
             if elevation_m is not None:
                 e = float(elevation_m)
-                if e < 5:
-                    elevation_risk = 20
-                elif e < 20:
-                    elevation_risk = 13
-                elif e < 50:
-                    elevation_risk = 7
+                if e < 5:     terrain_risk = 20
+                elif e < 15:  terrain_risk = 14
+                elif e < 30:  terrain_risk = 8
+                elif e < 60:  terrain_risk = 4
         except Exception:
             pass
 
-        # FEMA historical flood declarations (max 35)
-        fema_risk = (fema_data or {}).get('historical_risk_score', 0)
+        # --- Water proximity via OSM Overpass (max 20, graduated by distance) ---
+        # water_data is pre-fetched by the endpoint; falls back to live lookup if absent
+        if water_data is not None:
+            water_score, water_name, water_dist_m = water_data
+        else:
+            water_score, water_name, water_dist_m = get_water_proximity_score(lat, lon)
 
-        # USGS live stream gauge (max 35)
-        usgs_risk = (usgs_data or {}).get('gauge_risk_score', 0)
+        # --- Precipitation today (max 30) ---
+        if precip_today > 50:    precip_risk = 30
+        elif precip_today > 20:  precip_risk = 20
+        elif precip_today > 10:  precip_risk = 12
+        elif precip_today > 5:   precip_risk = 7
+        elif precip_today > 1:   precip_risk = 3
+        else:                    precip_risk = 0
+
+        # --- 7-day cumulative (max 25) ---
+        if cumulative_precip > 150:   cum_risk = 25
+        elif cumulative_precip > 80:  cum_risk = 18
+        elif cumulative_precip > 40:  cum_risk = 10
+        elif cumulative_precip > 15:  cum_risk = 4
+        else:                         cum_risk = 0
+
+        # --- FEMA capped at 20 (was 35) ---
+        fema_risk = min(20, (fema_data or {}).get('historical_risk_score', 0))
+
+        # --- USGS capped at 20 (was 35) ---
+        usgs_risk = min(20, (usgs_data or {}).get('gauge_risk_score', 0))
 
         # Final score capped at 100
-        final_score = min(100, base_score + precip_risk_factor + cumulative_risk_factor
-                         + water_proximity_risk + elevation_risk + fema_risk + usgs_risk)
+        final_score = min(100, precip_risk + cum_risk + water_score + terrain_risk + fema_risk + usgs_risk)
 
         if final_score < 30:
             risk_level = 'low'
@@ -785,19 +809,19 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
             'risk_score': round(final_score, 1),
             'precipitation_mm': round(precip_today, 1),
             'cumulative_7day_precip_mm': round(cumulative_precip, 1),
-            'near_water_body': near_water,
+            'near_water_body': water_score > 0,
             'water_body_name': water_name,
+            'water_distance_m': water_dist_m,
             'elevation_m': elevation_m,
             'factors': {
-                'base_location_risk': base_score,
-                'precipitation_today_risk': precip_risk_factor,
-                'cumulative_week_risk': cumulative_risk_factor,
-                'water_proximity_risk': water_proximity_risk,
-                'elevation_risk': elevation_risk,
-                'fema_historical_risk': fema_risk,
-                'usgs_gauge_risk': usgs_risk,
+                'precipitation_today_risk': precip_risk,
+                'cumulative_week_risk':     cum_risk,
+                'water_proximity_risk':     water_score,
+                'terrain_elevation_risk':   terrain_risk,
+                'fema_historical_risk':     fema_risk,
+                'usgs_gauge_risk':          usgs_risk,
             },
-            'note': 'Flood risk calculated from precipitation, location, FEMA historical events, and live USGS gauge data.'
+            'note': 'Flood risk from precipitation, terrain, water proximity (OSM), FEMA history, and USGS gauge.'
         }
     except Exception:
         logger.exception('Error calculating flood risk for date')
@@ -1282,9 +1306,10 @@ def api_flood_risk_date():
         from concurrent.futures import ThreadPoolExecutor as _TPE
         import time as _t2
         _t2_0 = _t2.monotonic()
-        with _TPE(max_workers=2) as _p:
+        with _TPE(max_workers=3) as _p:
             _ff = _p.submit(get_fema_flood_history, lat, lon)
             _fu = _p.submit(get_usgs_stream_gauge, lat, lon)
+            _fw = _p.submit(get_water_proximity_score, lat, lon)
             try:
                 fema_data = _ff.result(timeout=max(0.1, 5.0 - (_t2.monotonic() - _t2_0)))
             except Exception:
@@ -1293,13 +1318,18 @@ def api_flood_risk_date():
                 usgs_data = _fu.result(timeout=max(0.1, 5.0 - (_t2.monotonic() - _t2_0)))
             except Exception:
                 usgs_data = {'gauges': [], 'gauge_risk_score': 0}
+            try:
+                water_data = _fw.result(timeout=max(0.1, 5.0 - (_t2.monotonic() - _t2_0)))
+            except Exception:
+                water_data = (0, None, None)
 
-        # Calculate flood risk for this date (include elevation + FEMA + USGS)
+        # Calculate flood risk for this date (include elevation + FEMA + USGS + water proximity)
         flood_risk_that_day = calculate_flood_risk_for_date(
             lat, lon, date_str, daily,
             elevation_m=elevation,
             fema_data=fema_data,
-            usgs_data=usgs_data
+            usgs_data=usgs_data,
+            water_data=water_data,
         )
         
         if not flood_risk_that_day:
@@ -1353,7 +1383,8 @@ def get_forecast_weather(lat: float, lon: float, days: int = 16):
 
 
 def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
-                                   elevation_m=None, fema_data=None, usgs_data=None):
+                                   elevation_m=None, fema_data=None, usgs_data=None,
+                                   water_data=None):
     """Return a 14-day list of daily flood risk scores from forecast data.
     Uses a small fixed geographic base so precipitation variation drives day-to-day changes.
     """
@@ -1361,10 +1392,14 @@ def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
     precip    = forecast_daily.get('precipitation_sum', [])
     precip_p  = forecast_daily.get('precipitation_probability_max', [])
 
-    try:
-        near_water, water_name = is_near_water_body(lat, lon)
-    except Exception:
-        near_water, water_name = False, ''
+    # Water proximity — use pre-fetched data if available, else live OSM lookup
+    if water_data is not None:
+        _wscore, _wname, _ = water_data
+    else:
+        try:
+            _wscore, _wname, _ = get_water_proximity_score(lat, lon)
+        except Exception:
+            _wscore, _wname = 0, ''
 
     # --- Fixed geographic base (small, so daily precip drives variation) ---
     elevation_risk = 0
@@ -1377,7 +1412,8 @@ def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
     except Exception:
         pass
 
-    water_risk = 12 if near_water else 0
+    # Scale water score (0-20) to fit geo_base budget (max 12)
+    water_risk = round(_wscore * 12 / 20)
     # Cap FEMA/USGS contributions so they don't drown out daily variation
     fema_base  = min(10, (fema_data or {}).get('historical_risk_score', 0))
     usgs_base  = min(8,  (usgs_data or {}).get('gauge_risk_score', 0))
@@ -1455,19 +1491,22 @@ def api_forecast_risk():
             except Exception:
                 return default
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            f_fc   = pool.submit(get_forecast_weather, lat, lon, 16)
-            f_fema = pool.submit(get_fema_flood_history, lat, lon)
-            f_usgs = pool.submit(get_usgs_stream_gauge, lat, lon)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            f_fc    = pool.submit(get_forecast_weather, lat, lon, 16)
+            f_fema  = pool.submit(get_fema_flood_history, lat, lon)
+            f_usgs  = pool.submit(get_usgs_stream_gauge, lat, lon)
+            f_water = pool.submit(get_water_proximity_score, lat, lon)
             # Forecast is mandatory — raises if it fails
             forecast_daily = f_fc.result(timeout=max(0.1, _BUDGET - (_t.monotonic() - _t0)))
-            fema_data = _get_fc(f_fema, {'events': [], 'historical_risk_score': 0})
-            usgs_data = _get_fc(f_usgs, {'gauges': [], 'gauge_risk_score': 0})
+            fema_data  = _get_fc(f_fema,  {'events': [], 'historical_risk_score': 0})
+            usgs_data  = _get_fc(f_usgs,  {'gauges': [], 'gauge_risk_score': 0})
+            water_data = _get_fc(f_water, (0, None, None))
 
         daily_risks = calculate_flood_risk_forecast(lat, lon, forecast_daily,
                                                      elevation_m=elev,
                                                      fema_data=fema_data,
-                                                     usgs_data=usgs_data)
+                                                     usgs_data=usgs_data,
+                                                     water_data=water_data)
         return jsonify({'lat': lat, 'lon': lon, 'forecast': daily_risks})
     except Exception as e:
         logger.exception('Forecast risk error')
@@ -1568,6 +1607,30 @@ def api_ai_weather():
         if geo:
             lat, lon, loc_name, _ = geo
 
+    # --- Extract a specific date from the question (enables historical queries) ---
+    from datetime import datetime as _dt_ai, timedelta as _td_ai
+    _hist_date     = None
+    _hist_weather_day = None
+
+    # Match MM/DD/YYYY or M/D/YYYY (US format), also YYYY-MM-DD
+    _dm = re.search(r'\b(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})\b', question)
+    if _dm:
+        try:
+            _hist_date = _dt_ai.strptime(
+                f"{int(_dm.group(3))}-{int(_dm.group(1)):02d}-{int(_dm.group(2)):02d}",
+                '%Y-%m-%d').date()
+        except Exception:
+            pass
+    else:
+        _dm2 = re.search(r'\b(\d{4})[/\-](\d{1,2})[/\-](\d{1,2})\b', question)
+        if _dm2:
+            try:
+                _hist_date = _dt_ai.strptime(
+                    f"{_dm2.group(1)}-{int(_dm2.group(2)):02d}-{int(_dm2.group(3)):02d}",
+                    '%Y-%m-%d').date()
+            except Exception:
+                pass
+
     # Gather live weather context if we have coords
     ctx_lines = []
     forecast_daily = {}
@@ -1593,6 +1656,36 @@ def api_ai_weather():
             ctx_lines.insert(0, f'Location: {loc_name or f"{lat:.3f},{lon:.3f}"}')
         except Exception:
             pass
+
+        # If the question mentions a past date, fetch actual historical weather for it
+        if _hist_date and _hist_date < _dt_ai.utcnow().date():
+            try:
+                _hstart = (_hist_date - _td_ai(days=6)).strftime('%Y-%m-%d')
+                _hend   = _hist_date.strftime('%Y-%m-%d')
+                _hdata  = get_historical_weather(lat, lon, _hstart, _hend)
+                if _hdata and 'daily' in _hdata:
+                    _hd     = _hdata['daily']
+                    _hds    = _hist_date.strftime('%Y-%m-%d')
+                    _htimes = _hd.get('time', [])
+                    if _hds in _htimes:
+                        _hidx = _htimes.index(_hds)
+                        _hp   = _hd.get('precipitation_sum', [])
+                        _hw   = _hd.get('weathercode', [])
+                        _wdesc_hist = WMO_SHORT.get(
+                            int(_hw[_hidx]) if _hidx < len(_hw) and _hw[_hidx] is not None else 0, '')
+                        _hist_weather_day = {
+                            'date':      _hds,
+                            'precip_mm': float(_hp[_hidx]) if _hidx < len(_hp) and _hp[_hidx] is not None else 0.0,
+                            'tmax':      (_hd.get('temperature_2m_max') or [None])[_hidx],
+                            'tmin':      (_hd.get('temperature_2m_min') or [None])[_hidx],
+                            'windspeed': (_hd.get('windspeed_10m_max')  or [None])[_hidx],
+                            'wdesc':     _wdesc_hist,
+                            'cum_7day':  sum(
+                                float(v) for v in _hp[max(0, _hidx-6):_hidx+1] if v is not None
+                            ),
+                        }
+            except Exception:
+                pass
 
     # Rule-based weather Q&A engine
     q_lower = question.lower()
@@ -1641,7 +1734,45 @@ def api_ai_weather():
     elif any(w in q_lower for w in ['flood','flooding','inundation','overflow','surge']):
         if no_loc:
             answer = ("Ask me about a specific place, e.g. **'Is there flood risk in New Orleans?'** "
-                      "and I'll check the 7-day forecast for you.")
+                      "and I'll check the forecast for you.")
+        elif _hist_weather_day:
+            # Historical date query — answer from actual recorded data
+            p   = _hist_weather_day['precip_mm']
+            cum = _hist_weather_day['cum_7day']
+            d_s = _hist_weather_day['date']
+            tx  = _hist_weather_day.get('tmax')
+            wd  = _hist_weather_day.get('wdesc', '')
+            _temp_note = f" Temperature: {tx:.1f}°C." if tx is not None else ''
+            if p > 40 or cum > 120:
+                answer = (
+                    f"On **{d_s}**, **{place}** recorded **{p:.1f} mm** of precipitation "
+                    f"(7-day cumulative: **{cum:.1f} mm**) — {wd or 'heavy rain'}."
+                    f"{_temp_note} "
+                    f"{'⚠️ Extremely heavy rainfall — very high likelihood of significant flooding events.' if p > 60 else '⚠️ Heavy rainfall strongly associated with flood conditions.'} "
+                    "Check FEMA flood declarations or local emergency management records for official confirmation."
+                )
+            elif p > 10:
+                answer = (
+                    f"On **{d_s}**, **{place}** received **{p:.1f} mm** of rain "
+                    f"(7-day total: **{cum:.1f} mm**) — {wd or 'moderate rain'}.{_temp_note} "
+                    "Moderate-to-heavy rainfall — localised or minor flooding may have occurred "
+                    "in low-lying and riverside areas. "
+                    "Check FEMA or your local emergency management agency for official flood declarations."
+                )
+            elif p > 0:
+                answer = (
+                    f"On **{d_s}**, **{place}** received only **{p:.1f} mm** of precipitation "
+                    f"(7-day total: {cum:.1f} mm) — {wd or 'light rain'}.{_temp_note} "
+                    "Rainfall was light — significant flooding from precipitation alone is unlikely on this date. "
+                    "However, upstream river conditions or snowmelt could still have contributed."
+                )
+            else:
+                answer = (
+                    f"Weather records show **no measurable precipitation** in **{place}** on **{d_s}**.{_temp_note} "
+                    "Flooding from rainfall is very unlikely on this specific date. "
+                    "Flooding could still occur from upstream river flow, dam releases, or tidal surge — "
+                    "check FEMA or USGS streamflow records for confirmation."
+                )
         else:
             rainy_days = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 5)
             if rainy_days >= 4:
@@ -1658,6 +1789,21 @@ def api_ai_weather():
     elif any(w in q_lower for w in ['rain','precip','shower','drizzle','wet','umbrella']):
         if no_loc:
             answer = "Try asking: **'Will it rain in Seattle this week?'** — I'll pull the live forecast!"
+        elif _hist_weather_day:
+            p   = _hist_weather_day['precip_mm']
+            cum = _hist_weather_day['cum_7day']
+            d_s = _hist_weather_day['date']
+            wd  = _hist_weather_day.get('wdesc', '')
+            if p > 0:
+                intensity = ('Heavy' if p > 20 else 'Moderate' if p > 5 else 'Light')
+                answer = (
+                    f"On **{d_s}**, **{place}** recorded **{p:.1f} mm** of precipitation "
+                    f"({wd or intensity.lower() + ' rain'}). "
+                    f"7-day cumulative: **{cum:.1f} mm**. "
+                    f"{intensity} rainfall {'— potential for localised flooding.' if p > 20 else '.'}"
+                )
+            else:
+                answer = f"Weather records show **no precipitation** in **{place}** on **{d_s}**. It was a dry day."
         else:
             rainy = [(t, p) for t, p in zip(forecast_daily.get('time', []),
                                              forecast_daily.get('precipitation_sum', []))
@@ -1672,6 +1818,19 @@ def api_ai_weather():
     elif any(w in q_lower for w in ['temp','hot','cold','heat','warm','cool','freeze','frost','celsius','fahrenheit','degrees']):
         if no_loc:
             answer = "Try asking: **'How cold will it be in Denver this week?'** and I'll check the forecast!"
+        elif _hist_weather_day:
+            tx  = _hist_weather_day.get('tmax')
+            tn  = _hist_weather_day.get('tmin')
+            wd  = _hist_weather_day.get('wdesc', '')
+            d_s = _hist_weather_day['date']
+            if tx is not None:
+                answer = (
+                    f"On **{d_s}**, **{place}** had a high of **{tx:.1f}°C** "
+                    f"and a low of **{tn:.1f}°C**{' — ' + wd if wd else ''}. "
+                    f"{'⚠️ Below-freezing temperatures.' if tn is not None and float(tn) < 0 else ''}"
+                )
+            else:
+                answer = f"Temperature data is not available for **{place}** on **{d_s}**."
         else:
             tmaxs = [v for v in forecast_daily.get('temperature_2m_max', []) if v is not None]
             tmins = [v for v in forecast_daily.get('temperature_2m_min', []) if v is not None]
@@ -1720,6 +1879,19 @@ def api_ai_weather():
     elif any(w in q_lower for w in ['forecast','tomorrow','this week','today','weather like','what will','how is','how\'s','looking']):
         if no_loc:
             answer = "Try asking: **'What's the weather like in Miami this week?'** and I'll show you the full 7-day forecast!"
+        elif _hist_weather_day:
+            p   = _hist_weather_day['precip_mm']
+            tx  = _hist_weather_day.get('tmax')
+            tn  = _hist_weather_day.get('tmin')
+            wd  = _hist_weather_day.get('wdesc', 'data available')
+            ws  = _hist_weather_day.get('windspeed')
+            d_s = _hist_weather_day['date']
+            _parts = [f"📅 Weather in **{place}** on **{d_s}**:"]
+            if wd:  _parts.append(f"Conditions: **{wd}**")
+            if tx is not None: _parts.append(f"High: **{tx:.1f}°C**, Low: **{tn:.1f}°C**")
+            if p is not None:  _parts.append(f"Precipitation: **{p:.1f} mm**")
+            if ws is not None: _parts.append(f"Max wind: **{ws:.1f} km/h**")
+            answer = '\n'.join(_parts)
         else:
             if ctx_lines:
                 answer = f"📅 7-day forecast for **{place}**:\n" + '\n'.join(ctx_lines[1:])
@@ -1831,16 +2003,22 @@ def api_full_report():
         except Exception:
             return default
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    with ThreadPoolExecutor(max_workers=5) as pool:
         f_weather = pool.submit(get_weather, lat, lon)
         f_hist    = pool.submit(get_historical_weather, lat, lon, hist_start, hist_end)
         f_fema    = pool.submit(get_fema_flood_history, lat, lon)
         f_usgs    = pool.submit(get_usgs_stream_gauge, lat, lon)
+        f_water   = pool.submit(get_water_proximity_score, lat, lon)
 
         current_weather = _get(f_weather, None)
         historical_data = _get(f_hist,    None)
-        fema_data       = _get(f_fema,    {'events': [], 'historical_risk_score': 0})
-        usgs_data       = _get(f_usgs,    {'gauges': [], 'gauge_risk_score': 0})
+        # FEMA gets its own 6s budget — static fallback completes in <1ms once geocoded
+        try:
+            fema_data = f_fema.result(timeout=6)
+        except Exception:
+            fema_data = {'events': [], 'historical_risk_score': 0}
+        usgs_data  = _get(f_usgs,  {'gauges': [], 'gauge_risk_score': 0})
+        water_data = _get(f_water, (0, None, None))
 
     # 4. Weather on the specific date
     weather_that_day = None
@@ -1866,6 +2044,7 @@ def api_full_report():
             elevation_m=elevation,
             fema_data=fema_data,
             usgs_data=usgs_data,
+            water_data=water_data,
         )
 
     # 8. Build Windy embed URL (precipitation overlay)
