@@ -483,7 +483,7 @@ def get_fema_flood_history(lat: float, lon: float):
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json',
         }
-        fema_resp = requests.get(fema_url, params=fema_params, headers=fema_headers, timeout=15)
+        fema_resp = requests.get(fema_url, params=fema_params, headers=fema_headers, timeout=4)
         fema_resp.raise_for_status()
         events = fema_resp.json().get('DisasterDeclarationsSummaries', [])
 
@@ -1222,9 +1222,21 @@ def api_flood_risk_date():
             'windspeed_max_kmh': daily.get('windspeed_10m_max', [None])[date_idx],
         }
         
-        # Fetch FEMA historical flood declarations and USGS live gauge (non-fatal)
-        fema_data = get_fema_flood_history(lat, lon)
-        usgs_data = get_usgs_stream_gauge(lat, lon)
+        # Fetch FEMA historical flood declarations and USGS live gauge in parallel (non-fatal)
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        import time as _t2
+        _t2_0 = _t2.monotonic()
+        with _TPE(max_workers=2) as _p:
+            _ff = _p.submit(get_fema_flood_history, lat, lon)
+            _fu = _p.submit(get_usgs_stream_gauge, lat, lon)
+            try:
+                fema_data = _ff.result(timeout=max(0.1, 5.0 - (_t2.monotonic() - _t2_0)))
+            except Exception:
+                fema_data = {'events': [], 'historical_risk_score': 0}
+            try:
+                usgs_data = _fu.result(timeout=max(0.1, 5.0 - (_t2.monotonic() - _t2_0)))
+            except Exception:
+                usgs_data = {'gauges': [], 'gauge_risk_score': 0}
 
         # Calculate flood risk for this date (include elevation + FEMA + USGS)
         flood_risk_that_day = calculate_flood_risk_for_date(
@@ -1271,16 +1283,16 @@ def get_forecast_weather(lat: float, lon: float, days: int = 16):
         'timezone': 'UTC',
     }
     last_exc = None
-    for attempt in range(3):
+    for attempt in range(2):
         try:
-            resp = requests.get(url, params=params, timeout=20)
+            resp = requests.get(url, params=params, timeout=8)
             resp.raise_for_status()
             return resp.json().get('daily', {})
         except Exception as exc:
             last_exc = exc
             logger.warning('Open-Meteo forecast attempt %d failed: %s', attempt + 1, exc)
-            if attempt < 2:
-                _time.sleep(3)
+            if attempt < 1:
+                _time.sleep(1)
     raise last_exc
 
 
@@ -1375,22 +1387,26 @@ def api_forecast_risk():
         lat, lon, _, elev = geo
 
     try:
+        import time as _t
         from concurrent.futures import ThreadPoolExecutor
+        _t0 = _t.monotonic()
+        _BUDGET = 20.0  # hard wall-clock budget for all futures combined
+
+        def _get_fc(future, default):
+            remaining = max(0.1, _BUDGET - (_t.monotonic() - _t0))
+            try:
+                return future.result(timeout=remaining)
+            except Exception:
+                return default
+
         with ThreadPoolExecutor(max_workers=3) as pool:
             f_fc   = pool.submit(get_forecast_weather, lat, lon, 16)
             f_fema = pool.submit(get_fema_flood_history, lat, lon)
             f_usgs = pool.submit(get_usgs_stream_gauge, lat, lon)
-            # Forecast is mandatory — allow up to 70s for 3 retry attempts
-            forecast_daily = f_fc.result(timeout=70)
-            # FEMA/USGS are optional — degrade gracefully if they fail
-            try:
-                fema_data = f_fema.result(timeout=10)
-            except Exception:
-                fema_data = {'events': [], 'historical_risk_score': 0}
-            try:
-                usgs_data = f_usgs.result(timeout=10)
-            except Exception:
-                usgs_data = {'gauges': [], 'gauge_risk_score': 0}
+            # Forecast is mandatory — raises if it fails
+            forecast_daily = f_fc.result(timeout=max(0.1, _BUDGET - (_t.monotonic() - _t0)))
+            fema_data = _get_fc(f_fema, {'events': [], 'historical_risk_score': 0})
+            usgs_data = _get_fc(f_usgs, {'gauges': [], 'gauge_risk_score': 0})
 
         daily_risks = calculate_flood_risk_forecast(lat, lon, forecast_daily,
                                                      elevation_m=elev,
@@ -1747,32 +1763,28 @@ def api_full_report():
     hist_start = hist_start_date.strftime('%Y-%m-%d')
     hist_end   = hist_end_date.strftime('%Y-%m-%d')
 
+    import time as _t
     from concurrent.futures import ThreadPoolExecutor
+    _t0 = _t.monotonic()
+    _BUDGET = 7.0  # hard wall-clock budget — all 4 futures must finish within 7s
+
+    def _get(future, default):
+        remaining = max(0.1, _BUDGET - (_t.monotonic() - _t0))
+        try:
+            return future.result(timeout=remaining)
+        except Exception:
+            return default
+
     with ThreadPoolExecutor(max_workers=4) as pool:
         f_weather = pool.submit(get_weather, lat, lon)
         f_hist    = pool.submit(get_historical_weather, lat, lon, hist_start, hist_end)
         f_fema    = pool.submit(get_fema_flood_history, lat, lon)
         f_usgs    = pool.submit(get_usgs_stream_gauge, lat, lon)
 
-        try:
-            current_weather = f_weather.result(timeout=8)
-        except Exception:
-            current_weather = None
-
-        try:
-            historical_data = f_hist.result(timeout=10)
-        except Exception:
-            historical_data = None
-
-        try:
-            fema_data = f_fema.result(timeout=15)
-        except Exception:
-            fema_data = {'events': [], 'historical_risk_score': 0}
-
-        try:
-            usgs_data = f_usgs.result(timeout=10)
-        except Exception:
-            usgs_data = {'gauges': [], 'gauge_risk_score': 0}
+        current_weather = _get(f_weather, None)
+        historical_data = _get(f_hist,    None)
+        fema_data       = _get(f_fema,    {'events': [], 'historical_risk_score': 0})
+        usgs_data       = _get(f_usgs,    {'gauges': [], 'gauge_risk_score': 0})
 
     # 4. Weather on the specific date
     weather_that_day = None
