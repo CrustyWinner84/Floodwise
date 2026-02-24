@@ -1177,6 +1177,283 @@ def api_flood_risk_date():
         logger.exception('Unexpected error in date-based flood risk')
         return jsonify({'error': 'flood risk calculation failed', 'detail': str(e)}), 500
 
+def get_forecast_weather(lat: float, lon: float, days: int = 16):
+    """Fetch daily forecast from Open-Meteo for up to 16 days ahead (free, no key)."""
+    url = 'https://api.open-meteo.com/v1/forecast'
+    params = {
+        'latitude': lat,
+        'longitude': lon,
+        'daily': 'temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,windspeed_10m_max,weathercode',
+        'forecast_days': min(days, 16),
+        'temperature_unit': 'celsius',
+        'timezone': 'UTC',
+    }
+    resp = requests.get(url, params=params, timeout=10)
+    resp.raise_for_status()
+    return resp.json().get('daily', {})
+
+
+def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
+                                   elevation_m=None, fema_data=None, usgs_data=None):
+    """Return a 14-day list of daily flood risk scores from forecast data."""
+    times     = forecast_daily.get('time', [])
+    precip    = forecast_daily.get('precipitation_sum', [])
+    precip_p  = forecast_daily.get('precipitation_probability_max', [])
+
+    near_water, water_name = is_near_water_body(lat, lon)
+    base_risk = get_flood_risk(lat, lon)
+    base_score = base_risk.get('risk_score', 15)
+
+    fema_risk = (fema_data or {}).get('historical_risk_score', 0)
+    usgs_risk = (usgs_data or {}).get('gauge_risk_score', 0)
+
+    elevation_risk = 0
+    try:
+        if elevation_m is not None:
+            e = float(elevation_m)
+            if e < 5:     elevation_risk = 20
+            elif e < 20:  elevation_risk = 13
+            elif e < 50:  elevation_risk = 7
+    except Exception:
+        pass
+
+    results = []
+    for i, date_str in enumerate(times[:14]):
+        p_today = float(precip[i]) if i < len(precip) and precip[i] is not None else 0.0
+        p_prob  = float(precip_p[i]) if i < len(precip_p) and precip_p[i] is not None else 50.0
+
+        # 7-day cumulative (backward looking within forecast window)
+        window_start = max(0, i - 6)
+        cum = sum(float(v) for v in precip[window_start:i + 1] if v is not None)
+
+        precip_risk = 0
+        if p_today > 50:   precip_risk = 30
+        elif p_today > 20: precip_risk = 15
+        elif p_today > 5:  precip_risk = 5
+
+        # Scale by precipitation probability
+        precip_risk = round(precip_risk * p_prob / 100)
+
+        cum_risk = 0
+        if cum > 150:   cum_risk = 25
+        elif cum > 80:  cum_risk = 15
+        elif cum > 40:  cum_risk = 5
+
+        water_risk = 25 if near_water else 0
+        score = min(100, base_score + precip_risk + cum_risk + water_risk + elevation_risk + fema_risk + usgs_risk)
+
+        level = 'low' if score < 30 else ('moderate' if score < 60 else 'high')
+        results.append({
+            'date':             date_str,
+            'risk_score':       round(score, 1),
+            'risk_level':       level,
+            'precipitation_mm': round(p_today, 1),
+            'precip_prob_pct':  round(p_prob),
+            'cum_7day_mm':      round(cum, 1),
+        })
+    return results
+
+
+@app.route('/api/forecast-risk')
+def api_forecast_risk():
+    """14-day flood risk forecast.
+    Parameters: location OR lat+lon, elevation (optional)
+    """
+    lat      = request.args.get('lat',       type=float)
+    lon      = request.args.get('lon',       type=float)
+    elev     = request.args.get('elevation', type=float)
+    location = request.args.get('location', '').strip()
+
+    if lat is None or lon is None:
+        if not location:
+            return jsonify({'error': 'Provide "location" or "lat"+"lon"'}), 400
+        geo = geocode(location)
+        if not geo:
+            return jsonify({'error': 'location not found'}), 404
+        lat, lon, _, elev = geo
+
+    try:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_fc   = pool.submit(get_forecast_weather, lat, lon, 16)
+            f_fema = pool.submit(get_fema_flood_history, lat, lon)
+            f_usgs = pool.submit(get_usgs_stream_gauge, lat, lon)
+            forecast_daily = f_fc.result()
+            fema_data      = f_fema.result()
+            usgs_data      = f_usgs.result()
+
+        daily_risks = calculate_flood_risk_forecast(lat, lon, forecast_daily,
+                                                     elevation_m=elev,
+                                                     fema_data=fema_data,
+                                                     usgs_data=usgs_data)
+        return jsonify({'lat': lat, 'lon': lon, 'forecast': daily_risks})
+    except Exception as e:
+        logger.exception('Forecast risk error')
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ai-weather')
+def api_ai_weather():
+    """Weather-scoped AI assistant.  Accepts a natural-language question and an
+    optional lat/lon context.  Uses Open-Meteo forecast data as grounding so
+    answers are factual for the requested location.  No external LLM API key needed.
+    """
+    question = (request.args.get('q') or request.args.get('question') or '').strip()
+    lat      = request.args.get('lat',  type=float)
+    lon      = request.args.get('lon',  type=float)
+    location = request.args.get('location', '').strip()
+
+    if not question:
+        return jsonify({'error': 'Provide a "q" (question) parameter'}), 400
+
+    # Optional: resolve location to coords
+    loc_name = location
+    if lat is None or lon is None:
+        if location:
+            geo = geocode(location)
+            if geo:
+                lat, lon, loc_name, _ = geo
+
+    # Gather live weather context if we have coords
+    ctx_lines = []
+    forecast_daily = {}
+    if lat is not None and lon is not None:
+        try:
+            forecast_daily = get_forecast_weather(lat, lon, 7)
+            times  = forecast_daily.get('time', [])
+            precip = forecast_daily.get('precipitation_sum', [])
+            tmax   = forecast_daily.get('temperature_2m_max', [])
+            tmin   = forecast_daily.get('temperature_2m_min', [])
+            wcode  = forecast_daily.get('weathercode', [])
+            WMO_SHORT = {0:'clear sky',1:'mainly clear',2:'partly cloudy',3:'overcast',
+                         45:'fog',51:'light drizzle',53:'drizzle',55:'heavy drizzle',
+                         61:'light rain',63:'rain',65:'heavy rain',71:'light snow',
+                         73:'snow',75:'heavy snow',80:'showers',81:'moderate showers',
+                         82:'heavy showers',95:'thunderstorm',96:'thunderstorm+hail'}
+            for i, d in enumerate(times[:7]):
+                wdesc = WMO_SHORT.get(int(wcode[i]) if i < len(wcode) and wcode[i] is not None else 0, '')
+                pr    = precip[i] if i < len(precip) and precip[i] is not None else 0
+                tx    = tmax[i]   if i < len(tmax)   and tmax[i]   is not None else '?'
+                tn    = tmin[i]   if i < len(tmin)   and tmin[i]   is not None else '?'
+                ctx_lines.append(f'{d}: {wdesc}, max {tx}°C, min {tn}°C, precip {pr:.1f}mm')
+            ctx_lines.insert(0, f'Location: {loc_name or f"{lat:.3f},{lon:.3f}"}')
+        except Exception:
+            pass
+
+    # Rule-based weather Q&A engine
+    q_lower = question.lower()
+    answer  = None
+    ctx     = '\n'.join(ctx_lines)
+
+    # --- Flood / rain risk ---
+    if any(w in q_lower for w in ['flood','flooding','inundation','overflow','surge']):
+        rainy_days = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 5)
+        if rainy_days >= 4:
+            answer = (f"Based on the 7-day forecast for {loc_name or 'this location'}, "
+                      f"there are {rainy_days} days with significant precipitation (>5 mm). "
+                      "This increases surface runoff and flood risk, especially in low-lying or "
+                      "riverside areas. Monitor local emergency alerts and consider reviewing the "
+                      "flood risk score in the report above.")
+        else:
+            answer = (f"The 7-day forecast for {loc_name or 'this location'} shows {rainy_days} "
+                      "day(s) with notable rain. Flood risk appears relatively low in the near term, "
+                      "but always check local authority warnings for real-time updates.")
+
+    # --- Rain / precipitation ---
+    elif any(w in q_lower for w in ['rain','precip','shower','drizzle','wet','umbrella']):
+        rainy = [(t, p) for t, p in zip(forecast_daily.get('time', []),
+                                         forecast_daily.get('precipitation_sum', []))
+                 if p and float(p) > 0.5]
+        if rainy:
+            day_list = ', '.join(f"{t} ({float(p):.1f} mm)" for t, p in rainy[:4])
+            answer = f"Rain is expected on: {day_list}. {'Bring an umbrella!' if len(rainy) >= 3 else 'Mostly dry otherwise.'}"
+        else:
+            answer = f"No significant rain is forecast in the next 7 days for {loc_name or 'this location'}. Enjoy the dry weather!"
+
+    # --- Temperature / heat ---
+    elif any(w in q_lower for w in ['temp','hot','cold','heat','warm','cool','freeze','frost','celsius','fahrenheit']):
+        tmaxs = [v for v in forecast_daily.get('temperature_2m_max', []) if v is not None]
+        tmins = [v for v in forecast_daily.get('temperature_2m_min', []) if v is not None]
+        if tmaxs:
+            avg_max = sum(tmaxs) / len(tmaxs)
+            avg_min = sum(tmins) / len(tmins) if tmins else 0
+            answer = (f"Over the next 7 days in {loc_name or 'this location'}: "
+                      f"average high {avg_max:.1f}°C, average low {avg_min:.1f}°C. "
+                      f"Peak: {max(tmaxs):.1f}°C. {'Expect frost risk.' if min(tmins) < 2 else ''}")
+        else:
+            answer = "Temperature data is not available for this location right now."
+
+    # --- Wind ---
+    elif any(w in q_lower for w in ['wind','gust','breeze','storm','hurricane','typhoon','cyclone']):
+        winds = [v for v in forecast_daily.get('windspeed_10m_max', []) if v is not None]
+        if winds:
+            max_wind = max(winds)
+            avg_wind = sum(winds) / len(winds)
+            level = 'strong' if max_wind > 60 else ('moderate' if max_wind > 30 else 'light')
+            answer = (f"Wind forecast for {loc_name or 'this location'}: average {avg_wind:.1f} km/h, "
+                      f"peak {max_wind:.1f} km/h — {level} winds. "
+                      f"{'Take precautions outdoors.' if max_wind > 50 else 'No major wind hazard expected.'}")
+        else:
+            answer = "Wind data is currently unavailable for this location."
+
+    # --- Snow / ice ---
+    elif any(w in q_lower for w in ['snow','ice','blizzard','sleet','hail','frost']):
+        snow_days = sum(1 for c in forecast_daily.get('weathercode', []) if c and int(c) in range(71, 78))
+        tmins = [v for v in forecast_daily.get('temperature_2m_min', []) if v is not None]
+        if snow_days > 0:
+            answer = (f"Snow or icy conditions are possible on {snow_days} day(s) in the next week "
+                      f"for {loc_name or 'this location'}. Drive carefully and prepare for reduced visibility.")
+        elif tmins and min(tmins) < 2:
+            answer = (f"No snow is forecast, but temperatures will drop below 2°C in {loc_name or 'this location'}, "
+                      "so frost is possible. Protect exposed pipes and plants.")
+        else:
+            answer = f"No snow or icy conditions are expected in the next 7 days for {loc_name or 'this location'}."
+
+    # --- Forecast / what's the weather ---
+    elif any(w in q_lower for w in ['forecast','tomorrow','week','today','weather like','what will']):
+        if ctx_lines:
+            answer = "Here is the 7-day forecast:\n" + '\n'.join(ctx_lines[1:])
+        else:
+            answer = "Please search for a location first so I can pull the live forecast for you."
+
+    # --- Evacuation / safety ---
+    elif any(w in q_lower for w in ['evacuat','safe','escape','leave','shelter','emergency']):
+        answer = ("For evacuation guidance, use the '🚨 Smart Evacuation Routes' section below — it computes "
+                  "up to 3 road-based escape routes to higher ground. Always follow official emergency services "
+                  "instructions. For real-time emergency alerts, visit your local civil defense agency website.")
+
+    # --- UV / sun ---
+    elif any(w in q_lower for w in ['uv','sun','sunny','sunscreen','sunshine']):
+        clear_days = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) <= 3)
+        answer = (f"There are {clear_days} clear or mostly clear day(s) forecast for "
+                  f"{loc_name or 'this location'} this week. On clear days, UV index can be high — "
+                  "apply sunscreen (SPF 30+) if spending time outdoors.")
+
+    # --- Humidity / fog ---
+    elif any(w in q_lower for w in ['humid','fog','mist','visibility','damp','muggy']):
+        fog_days = sum(1 for c in forecast_daily.get('weathercode', []) if c in (45, 48))
+        answer = (f"Fog or mist is expected on {fog_days} day(s) in the next week for "
+                  f"{loc_name or 'this location'}. "
+                  "High humidity and fog reduce visibility — drive with caution on those days.")
+
+    # --- Generic fallback ---
+    else:
+        if ctx_lines:
+            answer = (f"I'm your FloodWise weather assistant! Here's a quick summary for "
+                      f"{loc_name or 'this location'}:\n{chr(10).join(ctx_lines[1:4])}\n\n"
+                      "You can ask me about rain, flooding, temperature, wind, snow, forecasts, UV, or evacuation safety!")
+        else:
+            answer = ("I'm your FloodWise weather assistant! I can answer questions about rain, flooding, "
+                      "temperature, wind, snow, forecasts, UV, fog, and evacuation safety. "
+                      "Search for a location first to get live data-grounded answers!")
+
+    return jsonify({
+        'question': question,
+        'answer':   answer,
+        'context':  ctx,
+    })
+
+
 @app.route('/api/full-report')
 def api_full_report():
     """Single endpoint: geocode + current weather + 30-day history + FEMA + USGS + flood risk.

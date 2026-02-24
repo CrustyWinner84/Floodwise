@@ -14,59 +14,75 @@
       -webkit-font-smoothing: antialiased;
       color: #fff;
       background:
-        radial-gradient(circle at 10% 15%, rgba(255,255,255,0.03) 0 12%, transparent 35%),
-        radial-gradient(circle at 85% 80%, rgba(255,255,255,0.02) 0 18%, transparent 45%),
-        repeating-linear-gradient(45deg, rgba(255,255,255,0.01) 0 2px, transparent 2px 60px),
-        linear-gradient(135deg, #3b0000 0%, #200000 100%);
+        radial-gradient(ellipse at 15% 50%, rgba(0,200,180,0.08) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 20%, rgba(80,50,220,0.11) 0%, transparent 45%),
+        radial-gradient(ellipse at 60% 85%, rgba(0,120,230,0.09) 0%, transparent 45%),
+        radial-gradient(ellipse at 35% 5%,  rgba(0,210,240,0.07) 0%, transparent 40%),
+        linear-gradient(160deg, #070d2a 0%, #04091c 40%, #0b1735 70%, #030c1a 100%);
     }
-    body { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
-    .app-header { text-align: center; margin-bottom: 2rem; }
-    .app-header h1 { font-size: 2.2rem; letter-spacing: 1px; color: #ffcccc; }
-    .app-header p { color: #ffaaaa; font-size: 0.95rem; margin-top: 0.35rem; }
+    body { max-width: 960px; margin: 0 auto; padding: 2rem 1.25rem 4rem; position: relative; z-index: 0; }
+    /* ---- Decorative weather icons ------------------------------------ */
+    .wx-deco { position: fixed; inset: 0; pointer-events: none; z-index: 0; overflow: hidden; }
+    .wx-deco svg { position: absolute; }
+    @keyframes wxFloat { 0%,100%{transform:translateY(0) translateX(0)} 50%{transform:translateY(-16px) translateX(8px)} }
+    @keyframes wxDrift { 0%{transform:translateX(0)} 100%{transform:translateX(34px)} }
+    @keyframes wxSpin  { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+    @keyframes wxFall  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(10px)} }
+    .wx-cloud { animation: wxFloat 9s ease-in-out infinite; }
+    .wx-rain  { animation: wxFall  6s ease-in-out infinite; }
+    .wx-sun   { animation: wxSpin  22s linear infinite; transform-box: fill-box; transform-origin: center; }
+    .wx-wind  { animation: wxDrift 13s ease-in-out infinite alternate; }
+    /* ------------------------------------------------------------------ */
+    .app-header { text-align: center; margin-bottom: 2rem; position: relative; z-index: 2; }
+    .app-header h1 { font-size: 2.2rem; letter-spacing: 1px; color: #b8d9ff; }
+    .app-header p { color: #7cb8f5; font-size: 0.95rem; margin-top: 0.35rem; }
     .search-card {
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(5,15,50,0.6);
+      border: 1px solid rgba(100,160,255,0.22);
       border-radius: 14px;
       padding: 1.5rem 1.75rem;
       margin-bottom: 1.75rem;
+      backdrop-filter: blur(8px);
+      position: relative; z-index: 2;
     }
     .search-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; }
     .search-row input[type="text"] {
       flex: 1 1 260px;
-      background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.09);
+      border: 1px solid rgba(100,160,255,0.3);
       border-radius: 8px; padding: 0.65rem 1rem; color: #fff;
       font-family: "McLaren", Arial, sans-serif; font-size: 1rem;
       outline: none; transition: border-color .2s;
     }
-    .search-row input[type="text"]::placeholder { color: #ffaaaa; }
-    .search-row input[type="text"]:focus { border-color: #ff8888; }
+    .search-row input[type="text"]::placeholder { color: #7cb8f5; }
+    .search-row input[type="text"]:focus { border-color: #4a9eff; }
     .search-row input[type="date"] {
-      background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.25);
+      background: rgba(255,255,255,0.09);
+      border: 1px solid rgba(100,160,255,0.3);
       border-radius: 8px; padding: 0.65rem 0.9rem; color: #fff;
       font-family: "McLaren", Arial, sans-serif; font-size: 1rem;
       outline: none; color-scheme: dark; transition: border-color .2s;
     }
-    .search-row input[type="date"]:focus { border-color: #ff8888; }
+    .search-row input[type="date"]:focus { border-color: #4a9eff; }
     .btn-get {
-      background: #8b0000; border: none; border-radius: 8px;
+      background: #0d3b73; border: none; border-radius: 8px;
       padding: 0.65rem 1.6rem; color: #fff;
       font-family: "McLaren", Arial, sans-serif; font-size: 1rem;
       cursor: pointer; transition: background .2s, transform .1s; white-space: nowrap;
     }
-    .btn-get:hover  { background: #b00000; }
+    .btn-get:hover  { background: #1a5fa8; }
     .btn-get:active { transform: scale(0.97); }
-    .btn-get:disabled { background: #555; cursor: default; }
-    #status-msg { text-align: center; color: #ffaaaa; font-size: 0.9rem; min-height: 1.4rem; margin-top: 0.5rem; }
-    #results { display: none; }
+    .btn-get:disabled { background: #444; cursor: default; }
+    #status-msg { text-align: center; color: #7cb8f5; font-size: 0.9rem; min-height: 1.4rem; margin-top: 0.5rem; }
+    #results { display: none; position: relative; z-index: 2; }
     .section {
-      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(5,14,42,0.65); border: 1px solid rgba(100,160,255,0.15);
       border-radius: 12px; padding: 1.4rem 1.6rem; margin-bottom: 1.25rem;
+      backdrop-filter: blur(8px);
     }
-    .section-heading { font-size: 1.1rem; font-weight: bold; color: #ffdddd; letter-spacing: 0.5px; margin-bottom: 1rem; }
+    .section-heading { font-size: 1.1rem; font-weight: bold; color: #c5e0ff; letter-spacing: 0.5px; margin-bottom: 1rem; }
     .kv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(175px, 1fr)); gap: 0.6rem 1rem; }
-    .kv-item label { display: block; font-size: 0.7rem; color: #ffaaaa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.2rem; }
+    .kv-item label { display: block; font-size: 0.7rem; color: #7cb8f5; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.2rem; }
     .kv-item span { font-size: 1rem; color: #fff; }
     .risk-badge { display: inline-block; padding: 0.25rem 0.85rem; border-radius: 20px; font-size: 0.85rem; font-weight: bold; letter-spacing: 0.4px; text-transform: uppercase; }
     .risk-low      { background: #14532d; color: #86efac; }
@@ -78,35 +94,35 @@
     .fill-low      { background: linear-gradient(90deg, #166534, #22c55e); }
     .fill-moderate { background: linear-gradient(90deg, #92400e, #f59e0b); }
     .fill-high     { background: linear-gradient(90deg, #7f1d1d, #ef4444); }
-    .risk-meter-label { display: flex; justify-content: space-between; font-size: 0.7rem; color: #ffaaaa; margin-top: 0.3rem; }
+    .risk-meter-label { display: flex; justify-content: space-between; font-size: 0.7rem; color: #7cb8f5; margin-top: 0.3rem; }
     .factors-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 0.9rem; }
-    .factors-table th { text-align: left; color: #ffaaaa; font-weight: normal; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.4px; padding: 0 0 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .factors-table td { padding: 0.45rem 0; border-bottom: 1px solid rgba(255,255,255,0.06); vertical-align: middle; }
+    .factors-table th { text-align: left; color: #7cb8f5; font-weight: normal; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.4px; padding: 0 0 0.5rem; border-bottom: 1px solid rgba(100,160,255,0.15); }
+    .factors-table td { padding: 0.45rem 0; border-bottom: 1px solid rgba(100,160,255,0.08); vertical-align: middle; }
     .factors-table tr:last-child td { border-bottom: none; }
     .factor-bar-wrap { display: flex; align-items: center; gap: 0.6rem; }
     .factor-bar-track { flex: 1; height: 8px; border-radius: 4px; background: rgba(255,255,255,0.1); overflow: hidden; }
-    .factor-bar-fill  { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #8b0000, #ef4444); }
-    .factor-pts { color: #fca5a5; font-size: 0.82rem; white-space: nowrap; }
-    .factor-max { color: #888; font-size: 0.75rem; }
+    .factor-bar-fill  { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #0d3b73, #3b82f6); }
+    .factor-pts { color: #90c4ff; font-size: 0.82rem; white-space: nowrap; }
+    .factor-max { color: #556; font-size: 0.75rem; }
     .precip-chart { margin-top: 0.9rem; display: flex; align-items: flex-end; gap: 3px; height: 80px; }
     .precip-bar { flex: 1; border-radius: 2px 2px 0 0; cursor: pointer; }
     .precip-bar:hover { opacity: 0.7; }
-    .precip-bar.highlighted { outline: 2px solid #ffdddd; }
-    .chart-x-labels { display: flex; justify-content: space-between; font-size: 0.65rem; color: #888; margin-top: 0.3rem; }
+    .precip-bar.highlighted { outline: 2px solid #c5e0ff; }
+    .chart-x-labels { display: flex; justify-content: space-between; font-size: 0.65rem; color: #556; margin-top: 0.3rem; }
     .fema-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin-top: 0.6rem; }
-    .fema-table th { text-align: left; color: #ffaaaa; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.4px; padding: 0 0 0.4rem; border-bottom: 1px solid rgba(255,255,255,0.1); }
-    .fema-table td { padding: 0.4rem 0.3rem; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .fema-table th { text-align: left; color: #7cb8f5; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.4px; padding: 0 0 0.4rem; border-bottom: 1px solid rgba(100,160,255,0.15); }
+    .fema-table td { padding: 0.4rem 0.3rem; border-bottom: 1px solid rgba(100,160,255,0.08); }
     .fema-table tr:last-child td { border-bottom: none; }
-    .fema-badge { background: rgba(139,0,0,0.6); border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.75rem; }
+    .fema-badge { background: rgba(13,59,115,0.7); border-radius: 4px; padding: 0.1rem 0.5rem; font-size: 0.75rem; }
     .gauge-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.75rem; margin-top: 0.75rem; }
-    .gauge-card { background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 1rem; }
-    .gauge-card h4 { font-size: 0.82rem; color: #ffdddd; margin-bottom: 0.55rem; line-height: 1.3; }
-    .gauge-height { font-size: 1.6rem; font-weight: bold; color: #fca5a5; }
-    .gauge-unit { font-size: 0.8rem; color: #888; margin-left: 0.25rem; }
-    .gauge-link { display: inline-block; margin-top: 0.55rem; font-size: 0.78rem; color: #ffaaaa; text-decoration: none; border-bottom: 1px dotted #ffaaaa; }
+    .gauge-card { background: rgba(255,255,255,0.05); border: 1px solid rgba(100,160,255,0.15); border-radius: 10px; padding: 1rem; }
+    .gauge-card h4 { font-size: 0.82rem; color: #c5e0ff; margin-bottom: 0.55rem; line-height: 1.3; }
+    .gauge-height { font-size: 1.6rem; font-weight: bold; color: #90c4ff; }
+    .gauge-unit { font-size: 0.8rem; color: #556; margin-left: 0.25rem; }
+    .gauge-link { display: inline-block; margin-top: 0.55rem; font-size: 0.78rem; color: #7cb8f5; text-decoration: none; border-bottom: 1px dotted #7cb8f5; }
     .gauge-link:hover { color: #fff; border-color: #fff; }
-    .no-data { color: #888; font-size: 0.88rem; font-style: italic; }
-    .windy-wrap { margin-top: 1.1rem; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.12); }
+    .no-data { color: #556; font-size: 0.88rem; font-style: italic; }
+    .windy-wrap { margin-top: 1.1rem; border-radius: 10px; overflow: hidden; border: 1px solid rgba(100,160,255,0.15); }
     .windy-wrap iframe { display: block; width: 100%; height: 380px; border: none; }
     .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 0.4rem; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -117,42 +133,223 @@
     /* ---- Evacuation Routes ------------------------------------------ */
     .evac-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
     .evac-tab-btn {
-      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.2);
-      border-radius: 8px; padding: 0.45rem 1.1rem; color: #ffdddd; cursor: pointer;
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(100,160,255,0.2);
+      border-radius: 8px; padding: 0.45rem 1.1rem; color: #c5e0ff; cursor: pointer;
       font-family: "McLaren", Arial, sans-serif; font-size: 0.88rem; transition: all .2s;
     }
-    .evac-tab-btn:hover  { background: rgba(255,255,255,0.15); }
-    .evac-tab-btn.active { background: #8b0000; border-color: #ef4444; color: #fff; }
+    .evac-tab-btn:hover  { background: rgba(100,160,255,0.15); }
+    .evac-tab-btn.active { background: #0d3b73; border-color: #3b82f6; color: #fff; }
     #evac-map { position: relative; z-index: 1; }
     .evac-summary {
       display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
       gap: 0.6rem; margin-bottom: 0.85rem;
     }
     .evac-stat {
-      background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(100,160,255,0.1);
       border-radius: 8px; padding: 0.7rem 0.9rem;
     }
-    .evac-stat label { display: block; font-size: 0.68rem; color: #ffaaaa; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem; }
+    .evac-stat label { display: block; font-size: 0.68rem; color: #7cb8f5; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.25rem; }
     .evac-stat span  { font-size: 1.05rem; color: #fff; }
     .evac-steps { list-style: none; margin-top: 0.65rem; }
     .evac-steps li {
       display: flex; align-items: flex-start; gap: 0.65rem;
-      padding: 0.5rem 0; border-bottom: 1px solid rgba(255,255,255,0.06);
-      font-size: 0.88rem; color: #ffe8e8;
+      padding: 0.5rem 0; border-bottom: 1px solid rgba(100,160,255,0.08);
+      font-size: 0.88rem; color: #dce8ff;
     }
     .evac-steps li:last-child { border-bottom: none; }
     .step-num {
       flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
-      background: #7f1d1d; display: flex; align-items: center; justify-content: center;
-      font-size: 0.7rem; font-weight: bold; color: #fca5a5; margin-top: 1px;
+      background: #0d2a4e; display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: bold; color: #90c4ff; margin-top: 1px;
     }
-    .step-dist { color: #888; font-size: 0.78rem; white-space: nowrap; margin-top: 2px; }
+    .step-dist { color: #556; font-size: 0.78rem; white-space: nowrap; margin-top: 2px; }
+    /* ---- 14-Day Flood Risk Forecast ---------------------------------- */
+    .forecast-timeline { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 1rem; }
+    .fc-day {
+      flex: 1 1 50px; min-width: 46px; background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(100,160,255,0.12); border-radius: 8px;
+      padding: 0.55rem 0.2rem; text-align: center; cursor: default; transition: background .15s;
+    }
+    .fc-day:hover { background: rgba(100,160,255,0.1); }
+    .fc-date  { font-size: 0.6rem; color: #556; margin-bottom: 0.3rem; }
+    .fc-score { font-size: 1.05rem; font-weight: bold; margin-bottom: 0.15rem; }
+    .fc-lbl   { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.3px; }
+    .fc-pre   { font-size: 0.6rem; color: #7cb8f5; margin-top: 0.2rem; }
+    .fc-low   { color: #4ade80; border-bottom: 3px solid #22c55e; }
+    .fc-mod   { color: #fbbf24; border-bottom: 3px solid #f59e0b; }
+    .fc-hi    { color: #f87171; border-bottom: 3px solid #ef4444; }
+    /* ---- Nearby Camera Feed ------------------------------------------ */
+    .cam-wrap { margin-top: 0.85rem; border-radius: 10px; overflow: hidden; border: 1px solid rgba(100,160,255,0.15); background: #04091c; }
+    .cam-wrap iframe { display: block; width: 100%; height: 360px; border: none; }
+    /* ---- AI Chat Panel ----------------------------------------------- */
+    #ai-btn {
+      position: fixed; top: 1.1rem; right: 1.2rem; z-index: 9000;
+      width: 52px; height: 52px; border-radius: 50%;
+      background: linear-gradient(135deg, #0d3b73, #1a5fa8);
+      border: 2px solid rgba(100,180,255,0.4);
+      box-shadow: 0 4px 18px rgba(0,80,220,0.45);
+      cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center;
+      transition: transform .2s, box-shadow .2s;
+    }
+    #ai-btn:hover { transform: scale(1.1); box-shadow: 0 6px 24px rgba(0,100,255,0.6); }
+    #ai-btn-tooltip {
+      position: fixed; top: 4.4rem; right: 1.2rem; z-index: 9001;
+      background: #0d3b73; color: #c5e0ff; font-size: 0.7rem;
+      padding: 0.25rem 0.55rem; border-radius: 6px; white-space: nowrap;
+      opacity: 0; pointer-events: none; transition: opacity .2s;
+      border: 1px solid rgba(100,160,255,0.25);
+    }
+    #ai-btn:hover + #ai-btn-tooltip { opacity: 1; }
+    #ai-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      z-index: 8998; display: none;
+    }
+    #ai-overlay.open { display: block; }
+    #ai-panel {
+      position: fixed; top: 0; right: -420px; width: 400px; max-width: 96vw;
+      height: 100vh; z-index: 8999;
+      background: linear-gradient(180deg, #06102c 0%, #030c1c 100%);
+      border-left: 1px solid rgba(100,160,255,0.2);
+      box-shadow: -8px 0 32px rgba(0,0,0,0.65);
+      transition: right 0.35s cubic-bezier(.4,0,.2,1);
+      display: flex; flex-direction: column;
+    }
+    #ai-panel.open { right: 0; }
+    .ai-panel-hdr {
+      display: flex; align-items: center; gap: 0.7rem;
+      padding: 0.85rem 1.1rem; border-bottom: 1px solid rgba(100,160,255,0.15); flex-shrink: 0;
+    }
+    .ai-logo-wrap { width: 46px; height: 46px; flex-shrink: 0; }
+    .ai-title-block { flex: 1; min-width: 0; }
+    .ai-title-block h2 { font-size: 0.95rem; color: #c5e0ff; margin: 0; }
+    .ai-beta {
+      display: inline-block; background: linear-gradient(90deg,#1a5fa8,#0d9488);
+      color: #fff; font-size: 0.58rem; font-weight: bold;
+      padding: 0.12rem 0.4rem; border-radius: 3px; letter-spacing: 0.6px;
+      text-transform: uppercase; margin-left: 0.3rem; vertical-align: middle;
+    }
+    .ai-title-block p { font-size: 0.7rem; color: #4a6a8a; margin: 0.1rem 0 0; }
+    #ai-close {
+      background: none; border: none; color: #4a6a8a; font-size: 1.3rem;
+      cursor: pointer; padding: 0.2rem; line-height: 1; flex-shrink: 0; transition: color .2s;
+    }
+    #ai-close:hover { color: #c5e0ff; }
+    #ai-msgs {
+      flex: 1; overflow-y: auto; padding: 1rem 1.1rem;
+      display: flex; flex-direction: column; gap: 0.75rem;
+    }
+    .ai-msg { max-width: 93%; border-radius: 10px; padding: 0.6rem 0.9rem; font-size: 0.87rem; line-height: 1.5; white-space: pre-wrap; }
+    .ai-msg.user { background: #0d3b73; color: #d4eaff; align-self: flex-end; border-bottom-right-radius: 3px; }
+    .ai-msg.bot  { background: rgba(255,255,255,0.05); color: #dce8ff; align-self: flex-start; border-bottom-left-radius: 3px; border: 1px solid rgba(100,160,255,0.13); }
+    .ai-msg-src  { display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.35rem; }
+    .ai-msg-src svg { width: 18px; height: 18px; }
+    .ai-msg-src span { font-size: 0.68rem; color: #7cb8f5; }
+    .ai-typing { display: flex; gap: 4px; align-items: center; }
+    .ai-typing span { width: 7px; height: 7px; border-radius: 50%; background: #3b82f6; animation: aiDot 1.2s ease-in-out infinite; }
+    .ai-typing span:nth-child(2) { animation-delay:.2s; }
+    .ai-typing span:nth-child(3) { animation-delay:.4s; }
+    @keyframes aiDot { 0%,80%,100%{transform:scale(.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+    .ai-sugs { display: flex; flex-wrap: wrap; gap: 0.35rem; padding: 0.5rem 1.1rem; flex-shrink: 0; border-top: 1px solid rgba(100,160,255,0.1); }
+    .ai-sug {
+      background: rgba(100,160,255,0.09); border: 1px solid rgba(100,160,255,0.2);
+      border-radius: 16px; padding: 0.22rem 0.65rem; font-size: 0.72rem; color: #90c4ff;
+      cursor: pointer; font-family: "McLaren", Arial, sans-serif; transition: background .15s;
+    }
+    .ai-sug:hover { background: rgba(100,160,255,0.22); color: #fff; }
+    #ai-input-row {
+      display: flex; gap: 0.5rem; padding: 0.85rem 1.1rem;
+      border-top: 1px solid rgba(100,160,255,0.15); flex-shrink: 0;
+    }
+    #ai-input {
+      flex: 1; background: rgba(255,255,255,0.07); border: 1px solid rgba(100,160,255,0.25);
+      border-radius: 8px; padding: 0.55rem 0.85rem; color: #fff;
+      font-family: "McLaren", Arial, sans-serif; font-size: 0.9rem; outline: none;
+    }
+    #ai-input::placeholder { color: #4a6a8a; }
+    #ai-input:focus { border-color: #3b82f6; }
+    #ai-send {
+      background: #0d3b73; border: none; border-radius: 8px; padding: 0.55rem 1rem;
+      color: #fff; cursor: pointer; font-size: 1.05rem; transition: background .2s;
+    }
+    #ai-send:hover { background: #1a5fa8; }
   </style>
 </head>
 <body>
 
+<!-- Decorative animated weather icons (background) -->
+<div class="wx-deco" aria-hidden="true">
+  <!-- 3 Clouds -->
+  <svg class="wx-cloud" viewBox="0 0 120 70" xmlns="http://www.w3.org/2000/svg" style="top:6%;left:2%;width:88px;opacity:0.13;animation-delay:0s"><path d="M22 58Q14 58 14 48Q14 38 26 38Q28 26 42 24Q58 22 64 32Q70 27 80 30Q94 30 94 42Q100 42 100 50Q100 60 88 60Z" fill="#a8d4f0"/></svg>
+  <svg class="wx-cloud" viewBox="0 0 120 70" xmlns="http://www.w3.org/2000/svg" style="top:28%;right:1%;width:66px;opacity:0.11;animation-delay:4s"><path d="M22 58Q14 58 14 48Q14 38 26 38Q28 26 42 24Q58 22 64 32Q70 27 80 30Q94 30 94 42Q100 42 100 50Q100 60 88 60Z" fill="#a8d4f0"/></svg>
+  <svg class="wx-cloud" viewBox="0 0 120 70" xmlns="http://www.w3.org/2000/svg" style="top:62%;left:0%;width:76px;opacity:0.10;animation-delay:7s"><path d="M22 58Q14 58 14 48Q14 38 26 38Q28 26 42 24Q58 22 64 32Q70 27 80 30Q94 30 94 42Q100 42 100 50Q100 60 88 60Z" fill="#a8d4f0"/></svg>
+  <!-- 3 Rain -->
+  <svg class="wx-rain" viewBox="0 0 90 100" xmlns="http://www.w3.org/2000/svg" style="top:10%;right:12%;width:68px;opacity:0.13;animation-delay:1s"><path d="M14 44Q8 44 8 34Q8 24 18 24Q20 14 32 12Q46 10 52 20Q58 16 66 18Q78 18 78 30Q84 30 84 38Q84 48 72 48Z" fill="#a8d4f0"/><line x1="24" y1="58" x2="19" y2="75" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/><line x1="38" y1="60" x2="33" y2="77" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/><line x1="52" y1="58" x2="47" y2="75" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/><line x1="65" y1="60" x2="60" y2="77" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/></svg>
+  <svg class="wx-rain" viewBox="0 0 90 100" xmlns="http://www.w3.org/2000/svg" style="top:46%;left:4%;width:54px;opacity:0.10;animation-delay:3s"><path d="M14 44Q8 44 8 34Q8 24 18 24Q20 14 32 12Q46 10 52 20Q58 16 66 18Q78 18 78 30Q84 30 84 38Q84 48 72 48Z" fill="#a8d4f0"/><line x1="24" y1="58" x2="19" y2="75" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/><line x1="38" y1="60" x2="33" y2="77" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/><line x1="52" y1="58" x2="47" y2="75" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/></svg>
+  <svg class="wx-rain" viewBox="0 0 90 100" xmlns="http://www.w3.org/2000/svg" style="top:78%;right:3%;width:62px;opacity:0.11;animation-delay:5s"><path d="M14 44Q8 44 8 34Q8 24 18 24Q20 14 32 12Q46 10 52 20Q58 16 66 18Q78 18 78 30Q84 30 84 38Q84 48 72 48Z" fill="#a8d4f0"/><line x1="24" y1="58" x2="19" y2="75" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/><line x1="38" y1="60" x2="33" y2="77" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/><line x1="52" y1="58" x2="47" y2="75" stroke="#90c4ff" stroke-width="2.5" stroke-linecap="round"/></svg>
+  <!-- 3 Suns -->
+  <svg class="wx-sun" viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg" style="top:2%;right:22%;width:52px;opacity:0.14;animation-delay:0s"><circle cx="45" cy="45" r="15" fill="#fbbf24"/><line x1="45" y1="6" x2="45" y2="16" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="45" y1="74" x2="45" y2="84" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="6" y1="45" x2="16" y2="45" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="74" y1="45" x2="84" y2="45" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="18" y1="18" x2="25" y2="25" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="65" y1="65" x2="72" y2="72" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="72" y1="18" x2="65" y2="25" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="25" y1="65" x2="18" y2="72" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
+  <svg class="wx-sun" viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg" style="top:52%;right:0%;width:42px;opacity:0.10;animation-delay:6s"><circle cx="45" cy="45" r="15" fill="#fbbf24"/><line x1="45" y1="6" x2="45" y2="16" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="45" y1="74" x2="45" y2="84" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="6" y1="45" x2="16" y2="45" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="74" y1="45" x2="84" y2="45" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="18" y1="18" x2="25" y2="25" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="65" y1="65" x2="72" y2="72" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="72" y1="18" x2="65" y2="25" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="25" y1="65" x2="18" y2="72" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
+  <svg class="wx-sun" viewBox="0 0 90 90" xmlns="http://www.w3.org/2000/svg" style="top:84%;left:8%;width:46px;opacity:0.11;animation-delay:3s"><circle cx="45" cy="45" r="15" fill="#fbbf24"/><line x1="45" y1="6" x2="45" y2="16" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="45" y1="74" x2="45" y2="84" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="6" y1="45" x2="16" y2="45" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="74" y1="45" x2="84" y2="45" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="18" y1="18" x2="25" y2="25" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/><line x1="65" y1="65" x2="72" y2="72" stroke="#fbbf24" stroke-width="3" stroke-linecap="round"/></svg>
+  <!-- 3 Wind -->
+  <svg class="wx-wind" viewBox="0 0 120 55" xmlns="http://www.w3.org/2000/svg" style="top:34%;right:3%;width:96px;opacity:0.13;animation-delay:2s"><path d="M5 14C20 7,45 7,70 13S95 19 115 13" stroke="#90c4ff" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M5 27C18 21,40 21,65 27S90 33 110 27" stroke="#90c4ff" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M10 41C22 35,50 35,75 41S100 47 115 43" stroke="#90c4ff" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>
+  <svg class="wx-wind" viewBox="0 0 120 55" xmlns="http://www.w3.org/2000/svg" style="top:70%;left:1%;width:86px;opacity:0.10;animation-delay:4.5s"><path d="M5 14C20 7,45 7,70 13S95 19 115 13" stroke="#90c4ff" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M5 27C18 21,40 21,65 27S90 33 110 27" stroke="#90c4ff" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M10 41C22 35,50 35,75 41S100 47 115 43" stroke="#90c4ff" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>
+  <svg class="wx-wind" viewBox="0 0 120 55" xmlns="http://www.w3.org/2000/svg" style="top:91%;right:14%;width:80px;opacity:0.09;animation-delay:1.5s"><path d="M5 14C20 7,45 7,70 13S95 19 115 13" stroke="#90c4ff" stroke-width="3" fill="none" stroke-linecap="round"/><path d="M5 27C18 21,40 21,65 27S90 33 110 27" stroke="#90c4ff" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>
+</div>
+
+<!-- AI floating button -->
+<button id="ai-btn" title="Ask FloodWise AI">
+  <svg viewBox="0 0 52 52" xmlns="http://www.w3.org/2000/svg" width="34" height="34">
+    <defs><linearGradient id="blg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4ab8e8"/><stop offset="100%" stop-color="#5ac8a0"/></linearGradient></defs>
+    <path d="M6 33Q3 33 3 28Q3 23 9 23Q10 18 16 17Q23 16 26 20Q28 18 32 19Q38 19 38 25Q41 25 41 29Q41 34 36 34Z" fill="url(#blg)"/>
+    <text x="9" y="31" font-family="Arial Black,sans-serif" font-size="11" font-weight="900" fill="#1a3a5c">AI</text>
+    <circle cx="42" cy="14" r="6" fill="#f59e0b"/>
+    <path d="M5 39Q11 35 17 39Q23 43 29 39Q35 35 42 39" stroke="#3b9edd" stroke-width="2" fill="none" stroke-linecap="round"/>
+  </svg>
+</button>
+<div id="ai-btn-tooltip">Ask our AI weather assistant</div>
+
+<!-- AI overlay -->
+<div id="ai-overlay"></div>
+
+<!-- AI Chat Panel -->
+<div id="ai-panel">
+  <div class="ai-panel-hdr">
+    <svg class="ai-logo-wrap" viewBox="0 0 120 115" xmlns="http://www.w3.org/2000/svg">
+      <defs><linearGradient id="clg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4ab8e8"/><stop offset="100%" stop-color="#5ac8a0"/></linearGradient></defs>
+      <path d="M14 75Q8 75 8 65Q8 55 20 55Q22 43 35 41Q51 39 57 49Q63 44 73 46Q87 46 87 58Q93 58 93 66Q93 76 81 76Z" fill="url(#clg)"/>
+      <text x="22" y="71" font-family="Arial Black,sans-serif" font-size="24" font-weight="900" fill="#1a3a5c" letter-spacing="1">AI</text>
+      <circle cx="97" cy="34" r="13" fill="#f59e0b"/>
+      <line x1="97" y1="14" x2="97" y2="19" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="111" y1="20" x2="108" y2="23" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="117" y1="34" x2="112" y2="34" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="83" y1="20" x2="86" y2="23" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="97" y1="54" x2="97" y2="49" stroke="#f59e0b" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M12 86Q26 78 40 86Q54 94 68 86Q82 78 96 86" stroke="#3b9edd" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <path d="M16 97Q30 89 44 97Q58 105 72 97Q86 89 100 97" stroke="#3b9edd" stroke-width="3" fill="none" stroke-linecap="round" opacity="0.55"/>
+    </svg>
+    <div class="ai-title-block">
+      <h2>FloodWise AI <span class="ai-beta">Beta</span></h2>
+      <p>Weather &amp; flood questions only</p>
+    </div>
+    <button id="ai-close">&times;</button>
+  </div>
+  <div id="ai-msgs"></div>
+  <div class="ai-sugs">
+    <button class="ai-sug" onclick="aiAsk(this)">Will it flood?</button>
+    <button class="ai-sug" onclick="aiAsk(this)">Rain this week?</button>
+    <button class="ai-sug" onclick="aiAsk(this)">Wind forecast?</button>
+    <button class="ai-sug" onclick="aiAsk(this)">Should I evacuate?</button>
+    <button class="ai-sug" onclick="aiAsk(this)">Snow expected?</button>
+    <button class="ai-sug" onclick="aiAsk(this)">7-day forecast?</button>
+  </div>
+  <div id="ai-input-row">
+    <input id="ai-input" type="text" placeholder="Ask about weather, flooding, safety&hellip;" autocomplete="off"/>
+    <button id="ai-send">&#x27A4;</button>
+  </div>
+</div>
+
   <header class="app-header">
-    <h1>&#x1F30A; FloodWise</h1>
+    <h1>&#x1F30A; FloodWise AI</h1>
     <p>Enter a place and date &mdash; get the full flood risk &amp; weather report on one page</p>
   </header>
 
@@ -183,9 +380,19 @@
       <div class="kv-grid" id="day-grid"></div>
     </div>
     <div class="section">
+      <div class="section-heading">&#x1F4C8; 14-Day Flood Risk Forecast</div>
+      <p style="font-size:0.82rem;color:#7cb8f5;margin-bottom:0.4rem">Daily flood risk prediction using weather forecast, elevation, FEMA history &amp; USGS gauges. Scores update automatically when you search.</p>
+      <div id="forecast-grid"><p class="no-data" style="margin-top:0.6rem">Search a location to see the 14-day forecast.</p></div>
+    </div>
+    <div class="section">
       <div class="section-heading">&#x1F327;&#xFE0F; 30-Day Precipitation History</div>
       <div class="precip-chart" id="precip-chart"></div>
       <div class="chart-x-labels" id="chart-labels"></div>
+    </div>
+    <div class="section">
+      <div class="section-heading">&#x1F4F7; Nearby Live Camera Feed</div>
+      <p style="font-size:0.82rem;color:#7cb8f5;margin-bottom:0.4rem">Live webcam map for your area &mdash; click any camera icon &#x1F3A5; to view the stream. Powered by Windy.</p>
+      <div class="cam-wrap" id="cam-wrap"><p class="no-data" style="padding:1rem">Search a location to load nearby cameras.</p></div>
     </div>
     <div class="section">
       <div class="section-heading">&#x1F3DB;&#xFE0F; Historical Flood Events (FEMA)</div>
@@ -346,6 +553,116 @@ function renderWindy(url) {
   $s('windy-wrap').innerHTML = '<iframe src="'+url+'" allowfullscreen loading="lazy"></iframe>';
 }
 
+// --------------- 14-Day Forecast + Camera ----------------------------
+var AI_LOGO_MINI = '<svg viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="bml" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="#4ab8e8"/><stop offset="100%" stop-color="#5ac8a0"/></linearGradient></defs><path d="M3 24Q1 24 1 20Q1 16 6 16Q7 12 12 11Q17 10 19 14Q21 12 24 13Q29 13 29 18Q31 18 31 21Q31 25 27 25Z" fill="url(#bml)"/><text x="5" y="23" font-family="Arial Black" font-size="9" font-weight="900" fill="#1a3a5c">AI</text><circle cx="30" cy="8" r="5" fill="#f59e0b"/><path d="M3 28Q8 25 13 28Q18 31 23 28Q28 25 33 28" stroke="#3b9edd" stroke-width="1.5" fill="none" stroke-linecap="round"/></svg>';
+
+function renderForecast(days) {
+  if (!days || !days.length) { $s('forecast-grid').innerHTML = '<p class="no-data">Forecast data unavailable.</p>'; return; }
+  var html = '<div class="forecast-timeline">';
+  days.forEach(function(d) {
+    var cls = d.risk_level === 'high' ? 'fc-hi' : (d.risk_level === 'moderate' ? 'fc-mod' : 'fc-low');
+    var mmdd = d.date.slice(5);
+    var pre = d.precipitation_mm > 0 ? d.precipitation_mm.toFixed(1) + 'mm' : '\u2014';
+    var prob = d.precip_prob_pct ? d.precip_prob_pct + '%' : '';
+    html += '<div class="fc-day" title="' + d.date + ' \u2022 Risk ' + d.risk_score + '/100 (' + d.risk_level + ')\nPrecip: ' + pre + (prob ? ' (' + prob + ' chance)' : '') + '">' +
+      '<div class="fc-date">' + mmdd + '</div>' +
+      '<div class="fc-score ' + cls + '">' + Math.round(d.risk_score) + '</div>' +
+      '<div class="fc-lbl ' + cls + '">' + d.risk_level + '</div>' +
+      '<div class="fc-pre">' + pre + '</div>' +
+      '</div>';
+  });
+  html += '</div>';
+  html += '<p style="font-size:0.72rem;color:#4a6a8a;margin-top:0.6rem">&#9432; Hover a day for details. Scores are predictions &mdash; always check official emergency alerts.</p>';
+  $s('forecast-grid').innerHTML = html;
+}
+
+async function loadForecast(lat, lon, elev) {
+  $s('forecast-grid').innerHTML = '<p class="no-data">Loading 14-day forecast…</p>';
+  try {
+    var url = '/api/forecast-risk?lat=' + lat + '&lon=' + lon + (elev != null ? '&elevation=' + elev : '');
+    var res = await fetch(url);
+    var data = await res.json();
+    if (data.forecast) renderForecast(data.forecast);
+    else $s('forecast-grid').innerHTML = '<p class="no-data">Forecast unavailable.</p>';
+  } catch(e) {
+    $s('forecast-grid').innerHTML = '<p class="no-data">Forecast unavailable.</p>';
+  }
+}
+
+function renderCameraFeed(lat, lon) {
+  var url = 'https://embed.windy.com/embed2.html?lat=' + lat + '&lon=' + lon +
+    '&zoom=10&level=surface&overlay=webcams&menu=&message=&marker=true&calendar=now&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1';
+  $s('cam-wrap').innerHTML = '<iframe src="' + url + '" allowfullscreen loading="lazy"></iframe>';
+}
+
+// --------------- AI Chat Panel ---------------------------------------
+var _aiContextLat = null, _aiContextLon = null, _aiContextLoc = '';
+
+function toggleAiPanel(force) {
+  var panel = $s('ai-panel'), overlay = $s('ai-overlay');
+  var open = force !== undefined ? force : !panel.classList.contains('open');
+  panel.classList.toggle('open', open);
+  overlay.classList.toggle('open', open);
+  if (open && $s('ai-msgs').children.length === 0) {
+    appendBotMsg('Hi! I\'m the FloodWise AI assistant \u2014 still in **beta** \uD83D\uDEA7.\n\nI can answer questions about weather, flooding, temperature, wind, snow, forecasts, UV, and evacuation safety for your searched location.\n\nTry one of the suggestions below or type your own question!');
+  }
+}
+
+function appendBotMsg(text) {
+  var msgs = $s('ai-msgs');
+  var div = document.createElement('div');
+  div.className = 'ai-msg bot';
+  div.innerHTML = '<div class="ai-msg-src">' + AI_LOGO_MINI + '<span>FloodWise AI &nbsp;<span style="font-size:0.6rem;background:linear-gradient(90deg,#1a5fa8,#0d9488);padding:0.08rem 0.3rem;border-radius:3px;letter-spacing:0.5px">BETA</span></span></div>' +
+    text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function appendUserMsg(text) {
+  var msgs = $s('ai-msgs');
+  var div = document.createElement('div');
+  div.className = 'ai-msg user';
+  div.textContent = text;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function showAiTyping() {
+  var msgs = $s('ai-msgs');
+  var d = document.createElement('div');
+  d.className = 'ai-msg bot';
+  d.innerHTML = '<div class="ai-typing"><span></span><span></span><span></span></div>';
+  msgs.appendChild(d);
+  msgs.scrollTop = msgs.scrollHeight;
+  return d;
+}
+
+function aiAsk(btn) {
+  $s('ai-input').value = btn.textContent;
+  sendAiMessage();
+}
+
+async function sendAiMessage() {
+  var q = $s('ai-input').value.trim();
+  if (!q) return;
+  $s('ai-input').value = '';
+  appendUserMsg(q);
+  var typing = showAiTyping();
+  try {
+    var url = '/api/ai-weather?q=' + encodeURIComponent(q);
+    if (_aiContextLat) url += '&lat=' + _aiContextLat + '&lon=' + _aiContextLon;
+    if (_aiContextLoc) url += '&location=' + encodeURIComponent(_aiContextLoc);
+    var res = await fetch(url);
+    var data = await res.json();
+    typing.remove();
+    appendBotMsg(data.answer || 'Sorry, I could not answer that right now.');
+  } catch(e) {
+    typing.remove();
+    appendBotMsg('Connection error. Please try again.');
+  }
+}
+// -----------------------------------------------------------------------
+
 // --------------- Evacuation Routes -----------------------------------
 var _curLat = null, _curLon = null, _curElev = null;
 var _evacData = null, _evacMap = null, _evacLayers = [];
@@ -462,6 +779,11 @@ async function go() {
     renderFema(data.fema_history);
     renderUsgs(data.usgs_gauges);
     if (data.windy_embed_url) renderWindy(data.windy_embed_url);
+    // Load forecast + camera feed in background
+    loadForecast(data.latitude, data.longitude, data.elevation_m);
+    renderCameraFeed(data.latitude, data.longitude);
+    // Set AI context for location-aware answers
+    _aiContextLat = data.latitude; _aiContextLon = data.longitude; _aiContextLoc = data.location || q;
     // Stash coords for evacuation route engine
     _curLat = data.latitude; _curLon = data.longitude; _curElev = data.elevation_m;
     // Reset evacuation panel for new location
@@ -483,6 +805,11 @@ async function go() {
 $s('btn-get').addEventListener('click', go);
 $s('q').addEventListener('keydown', function(e){ if(e.key==='Enter') go(); });
 $s('btn-evac').addEventListener('click', loadEvacRoutes);
+$s('ai-btn').addEventListener('click', function(){ toggleAiPanel(); });
+$s('ai-close').addEventListener('click', function(){ toggleAiPanel(false); });
+$s('ai-overlay').addEventListener('click', function(){ toggleAiPanel(false); });
+$s('ai-send').addEventListener('click', sendAiMessage);
+$s('ai-input').addEventListener('keydown', function(e){ if(e.key==='Enter') sendAiMessage(); });
 </script>
 </body>
 </html>
