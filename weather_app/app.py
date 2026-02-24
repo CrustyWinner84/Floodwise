@@ -339,11 +339,25 @@ def geocode(location: str):
 def get_weather(lat: float, lon: float):
     """Fetch current weather from Open-Meteo (no API key required)."""
     url = 'https://api.open-meteo.com/v1/forecast'
-    params = {'latitude': lat, 'longitude': lon, 'current_weather': True}
-    resp = requests.get(url, params=params, timeout=15)
+    params = {
+        'latitude': lat, 'longitude': lon,
+        'current': 'temperature_2m,weathercode,windspeed_10m,winddirection_10m,precipitation,relative_humidity_2m',
+        'timezone': 'auto'
+    }
+    resp = requests.get(url, params=params, timeout=8)
     resp.raise_for_status()
     data = resp.json()
-    return data.get('current_weather')
+    cur = data.get('current', {})
+    if not cur:
+        return None
+    return {
+        'temperature':   cur.get('temperature_2m'),
+        'windspeed':     cur.get('windspeed_10m'),
+        'winddirection': cur.get('winddirection_10m'),
+        'weathercode':   cur.get('weathercode'),
+        'precipitation': cur.get('precipitation'),
+        'humidity':      cur.get('relative_humidity_2m'),
+    }
 
 
 def get_historical_weather(lat: float, lon: float, start_date: str, end_date: str):
@@ -396,17 +410,17 @@ def get_fema_flood_history(lat: float, lon: float):
     Returns up to 5 most recent flood events and a risk score (0-35).
     """
     try:
-        # Reverse geocode to get state name
-        geo_url = 'https://nominatim.openstreetmap.org/reverse'
-        params = {'lat': lat, 'lon': lon, 'format': 'json'}
-        user_agent = os.environ.get('NOMINATIM_USER_AGENT', 'weather-app/1.0 (contact: example@example.com)')
-        resp = requests.get(geo_url, params=params, headers={'User-Agent': user_agent}, timeout=3)
+        # Reverse geocode using BigDataCloud (free, no key, fast, no Azure blocks)
+        geo_url = 'https://api.bigdatacloud.net/data/reverse-geocode-client'
+        params = {'latitude': lat, 'longitude': lon, 'localityLanguage': 'en'}
+        resp = requests.get(geo_url, params=params, timeout=5)
         resp.raise_for_status()
-        addr = resp.json().get('address', {})
-        state_name = addr.get('state', '')
+        geo_data = resp.json()
+        country_code = geo_data.get('countryCode', '')
+        state_name   = geo_data.get('principalSubdivision', '')
         state_abbrev = STATE_ABBREVS.get(state_name, '')
 
-        if not state_abbrev:
+        if country_code != 'US' or not state_abbrev:
             return {
                 'available': False,
                 'note': 'FEMA historical data only available for US locations.',
@@ -422,7 +436,7 @@ def get_fema_flood_history(lat: float, lon: float):
             '$top': 10,
             '$select': 'disasterNumber,declarationDate,declarationTitle,incidentType,state,designatedArea,incidentBeginDate,incidentEndDate'
         }
-        fema_resp = requests.get(fema_url, params=fema_params, timeout=15)
+        fema_resp = requests.get(fema_url, params=fema_params, timeout=8)
         fema_resp.raise_for_status()
         events = fema_resp.json().get('DisasterDeclarationsSummaries', [])
 
@@ -442,7 +456,8 @@ def get_fema_flood_history(lat: float, lon: float):
         }
     except Exception as e:
         logger.debug('FEMA flood history lookup failed: %s', e)
-        return {'available': False, 'events': [], 'historical_risk_score': 0, 'note': str(e)}
+        return {'available': False, 'events': [], 'historical_risk_score': 0,
+                'note': 'FEMA flood history data temporarily unavailable.'}
 
 
 def get_usgs_stream_gauge(lat: float, lon: float):
@@ -1200,53 +1215,59 @@ def get_forecast_weather(lat: float, lon: float, days: int = 16):
 
 def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
                                    elevation_m=None, fema_data=None, usgs_data=None):
-    """Return a 14-day list of daily flood risk scores from forecast data."""
+    """Return a 14-day list of daily flood risk scores from forecast data.
+    Uses a small fixed geographic base so precipitation variation drives day-to-day changes.
+    """
     times     = forecast_daily.get('time', [])
     precip    = forecast_daily.get('precipitation_sum', [])
     precip_p  = forecast_daily.get('precipitation_probability_max', [])
 
     near_water, water_name = is_near_water_body(lat, lon)
-    base_risk = get_flood_risk(lat, lon)
-    base_score = base_risk.get('risk_score', 15)
 
-    fema_risk = (fema_data or {}).get('historical_risk_score', 0)
-    usgs_risk = (usgs_data or {}).get('gauge_risk_score', 0)
-
+    # --- Fixed geographic base (small, so daily precip drives variation) ---
     elevation_risk = 0
     try:
         if elevation_m is not None:
             e = float(elevation_m)
-            if e < 5:     elevation_risk = 20
-            elif e < 20:  elevation_risk = 13
-            elif e < 50:  elevation_risk = 7
+            if e < 5:     elevation_risk = 18
+            elif e < 20:  elevation_risk = 11
+            elif e < 50:  elevation_risk = 5
     except Exception:
         pass
+
+    water_risk = 12 if near_water else 0
+    # Cap FEMA/USGS contributions so they don't drown out daily variation
+    fema_base  = min(10, (fema_data or {}).get('historical_risk_score', 0))
+    usgs_base  = min(8,  (usgs_data or {}).get('gauge_risk_score', 0))
+    geo_base   = elevation_risk + water_risk + fema_base + usgs_base  # max ~48
 
     results = []
     for i, date_str in enumerate(times[:14]):
         p_today = float(precip[i]) if i < len(precip) and precip[i] is not None else 0.0
         p_prob  = float(precip_p[i]) if i < len(precip_p) and precip_p[i] is not None else 50.0
 
-        # 7-day cumulative (backward looking within forecast window)
+        # 7-day cumulative (within forecast window)
         window_start = max(0, i - 6)
         cum = sum(float(v) for v in precip[window_start:i + 1] if v is not None)
 
-        precip_risk = 0
-        if p_today > 50:   precip_risk = 30
-        elif p_today > 20: precip_risk = 15
-        elif p_today > 5:  precip_risk = 5
+        # Daily precipitation risk (0-40 pts) — primary driver of variation
+        if p_today > 50:    precip_risk = 40
+        elif p_today > 25:  precip_risk = 28
+        elif p_today > 10:  precip_risk = 18
+        elif p_today > 5:   precip_risk = 10
+        elif p_today > 1:   precip_risk = 4
+        else:               precip_risk = 0
 
         # Scale by precipitation probability
-        precip_risk = round(precip_risk * p_prob / 100)
+        precip_risk = round(precip_risk * min(p_prob, 100) / 100)
 
-        cum_risk = 0
-        if cum > 150:   cum_risk = 25
-        elif cum > 80:  cum_risk = 15
-        elif cum > 40:  cum_risk = 5
+        # Cumulative rain risk (0-15 pts)
+        if cum > 100:   cum_risk = 15
+        elif cum > 50:  cum_risk = 10
+        elif cum > 20:  cum_risk = 5
+        else:           cum_risk = 0
 
-        water_risk = 25 if near_water else 0
-        score = min(100, base_score + precip_risk + cum_risk + water_risk + elevation_risk + fema_risk + usgs_risk)
-
+        score = min(100, geo_base + precip_risk + cum_risk)
         level = 'low' if score < 30 else ('moderate' if score < 60 else 'high')
         results.append({
             'date':             date_str,

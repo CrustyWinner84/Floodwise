@@ -500,7 +500,13 @@ var WMO = {0:'Clear sky',1:'Mainly clear',2:'Partly cloudy',3:'Overcast',45:'Fog
 function renderCurrent(cw) {
   if (!cw) { $s('cur-grid').innerHTML = '<span class="no-data">Current weather unavailable.</span>'; return; }
   var c = cw.current_weather || cw;
-  $s('cur-grid').innerHTML = kv('Temperature',fmtT(c.temperature||c.temperature_c)) + kv('Wind Speed',fmtK(c.windspeed||c.windspeed_kmh)) + kv('Wind Dir', c.winddirection!=null?c.winddirection+'°':'—') + kv('Condition', c.weathercode!=null?(WMO[c.weathercode]||'Code '+c.weathercode):'—');
+  $s('cur-grid').innerHTML =
+    kv('Temperature', fmtT(c.temperature||c.temperature_c)) +
+    kv('Wind Speed',  fmtK(c.windspeed||c.windspeed_kmh)) +
+    kv('Wind Dir',    c.winddirection!=null ? c.winddirection+'\u00b0' : '\u2014') +
+    kv('Condition',   c.weathercode!=null ? (WMO[c.weathercode]||'Code '+c.weathercode) : '\u2014') +
+    (c.precipitation!=null ? kv('Precipitation', c.precipitation.toFixed(1)+' mm') : '') +
+    (c.humidity!=null      ? kv('Humidity',      c.humidity+'%') : '');
 }
 
 function renderDay(wd) {
@@ -592,10 +598,18 @@ async function loadForecast(lat, lon, elev) {
   }
 }
 
-function renderCameraFeed(lat, lon) {
-  var url = 'https://embed.windy.com/embed2.html?lat=' + lat + '&lon=' + lon +
-    '&zoom=10&level=surface&overlay=webcams&menu=&message=&marker=true&calendar=now&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1';
-  $s('cam-wrap').innerHTML = '<iframe src="' + url + '" allowfullscreen loading="lazy"></iframe>';
+function renderCameraFeed(lat, lon, locName) {
+  var city = encodeURIComponent(locName || '');
+  var windyUrl = 'https://embed.windy.com/embed2.html?lat=' + lat + '&lon=' + lon +
+    '&zoom=12&level=surface&overlay=webcams&menu=&message=&marker=true&type=map&location=coordinates&detail=&metricWind=default&metricTemp=default&radarRange=-1';
+  var earthcamUrl = 'https://www.earthcam.com/map/';
+  $s('cam-wrap').innerHTML =
+    '<div style="display:flex;gap:0.6rem;margin-bottom:0.7rem;flex-wrap:wrap">' +
+    '<a href="' + earthcamUrl + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;background:#0d3b73;border:1px solid rgba(100,160,255,0.3);border-radius:8px;padding:0.45rem 1rem;color:#c5e0ff;text-decoration:none;font-size:0.85rem">&#x1F4F9; Open EarthCam &rarr;</a>' +
+    '<a href="https://windy.com/webcams/?lat=' + lat + '&lon=' + lon + '" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:0.4rem;background:rgba(255,255,255,0.05);border:1px solid rgba(100,160,255,0.2);border-radius:8px;padding:0.45rem 1rem;color:#90c4ff;text-decoration:none;font-size:0.85rem">&#x1F30D; Windy Webcams &rarr;</a>' +
+    '</div>' +
+    '<iframe src="' + windyUrl + '" allowfullscreen loading="lazy"></iframe>' +
+    '<p style="font-size:0.75rem;color:#4a6a8a;margin-top:0.5rem">&#x1F4F7; Click any camera icon on the map to watch a live stream. Or use the <strong>EarthCam</strong> button above for full-screen live video feeds.</p>';
 }
 
 // --------------- AI Chat Panel ---------------------------------------
@@ -784,7 +798,7 @@ async function go() {
     if (data.windy_embed_url) renderWindy(data.windy_embed_url);
     // Load forecast + camera feed in background
     loadForecast(data.latitude, data.longitude, data.elevation_m);
-    renderCameraFeed(data.latitude, data.longitude);
+    renderCameraFeed(data.latitude, data.longitude, data.location);
     // Set AI context for location-aware answers
     _aiContextLat = data.latitude; _aiContextLon = data.longitude; _aiContextLoc = data.location || q;
     // Stash coords for evacuation route engine
