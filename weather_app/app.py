@@ -471,7 +471,7 @@ def get_fema_flood_history(lat: float, lon: float):
                 logger.debug('FEMA cache hit for state %s', state_abbrev)
                 return cached_result
 
-        # --- Fetch from OpenFEMA ---
+        # --- Fetch from OpenFEMA using a full browser session to bypass Akamai CDN ---
         fema_url = 'https://www.fema.gov/api/open/v2/disasterDeclarationsSummaries'
         fema_params = {
             '$filter': f"state eq '{state_abbrev}' and incidentType eq 'Flood'",
@@ -479,11 +479,23 @@ def get_fema_flood_history(lat: float, lon: float):
             '$top': 10,
             '$select': 'disasterNumber,declarationDate,declarationTitle,incidentType,state,designatedArea,incidentBeginDate,incidentEndDate'
         }
-        fema_headers = {
-            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/json',
-        }
-        fema_resp = requests.get(fema_url, params=fema_params, headers=fema_headers, timeout=4)
+        _session = requests.Session()
+        _session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Referer': 'https://www.fema.gov/disaster/declarations',
+            'Origin': 'https://www.fema.gov',
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'same-origin',
+            'sec-ch-ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        })
+        fema_resp = _session.get(fema_url, params=fema_params, timeout=6)
         fema_resp.raise_for_status()
         events = fema_resp.json().get('DisasterDeclarationsSummaries', [])
 

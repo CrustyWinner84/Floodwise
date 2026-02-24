@@ -167,13 +167,27 @@
     }
     .step-dist { color: #556; font-size: 0.78rem; white-space: nowrap; margin-top: 2px; }
     /* ---- 14-Day Flood Risk Forecast ---------------------------------- */
-    .forecast-timeline { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 1rem; }
+    .forecast-timeline { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 1rem; overflow: visible; }
     .fc-day {
       flex: 1 1 50px; min-width: 46px; background: rgba(255,255,255,0.04);
       border: 1px solid rgba(100,160,255,0.12); border-radius: 8px;
       padding: 0.55rem 0.2rem; text-align: center; cursor: default; transition: background .15s;
+      position: relative; overflow: visible;
     }
     .fc-day:hover { background: rgba(100,160,255,0.1); }
+    .fc-tooltip {
+      display: none; position: absolute; bottom: calc(100% + 8px); left: 50%; transform: translateX(-50%);
+      background: #070d2a; border: 1px solid rgba(100,160,255,0.35); border-radius: 8px;
+      padding: 0.55rem 0.8rem; min-width: 155px; font-size: 0.74rem; color: #c5e0ff;
+      z-index: 999; pointer-events: none; box-shadow: 0 6px 24px rgba(0,0,0,0.6);
+      white-space: nowrap; line-height: 1.7; text-align: left;
+    }
+    .fc-tooltip strong { color: #fff; }
+    .fc-tooltip::after {
+      content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+      border: 6px solid transparent; border-top-color: rgba(100,160,255,0.35);
+    }
+    .fc-day:hover .fc-tooltip { display: block; }
     .fc-date  { font-size: 0.6rem; color: #556; margin-bottom: 0.3rem; }
     .fc-score { font-size: 1.05rem; font-weight: bold; margin-bottom: 0.15rem; }
     .fc-lbl   { font-size: 0.56rem; text-transform: uppercase; letter-spacing: 0.3px; }
@@ -576,17 +590,25 @@ function renderForecast(days) {
   days.forEach(function(d) {
     var cls = d.risk_level === 'high' ? 'fc-hi' : (d.risk_level === 'moderate' ? 'fc-mod' : 'fc-low');
     var mmdd = d.date.slice(5);
-    var pre = d.precipitation_mm > 0 ? d.precipitation_mm.toFixed(1) + 'mm' : '\u2014';
-    var prob = d.precip_prob_pct ? d.precip_prob_pct + '%' : '';
-    html += '<div class="fc-day" title="' + d.date + ' \u2022 Risk ' + d.risk_score + '/100 (' + d.risk_level + ')\nPrecip: ' + pre + (prob ? ' (' + prob + ' chance)' : '') + '">' +
+    var pre = d.precipitation_mm > 0 ? d.precipitation_mm.toFixed(1) + ' mm' : '\u2014';
+    var prob = d.precip_prob_pct != null ? d.precip_prob_pct + '%' : '\u2014';
+    var cum  = d.cum_7day_mm   > 0 ? d.cum_7day_mm.toFixed(1) + ' mm' : '\u2014';
+    html += '<div class="fc-day">' +
+      '<div class="fc-tooltip">' +
+        '<div><strong>' + d.date + '</strong></div>' +
+        '<div>Risk: <strong>' + Math.round(d.risk_score) + '/100</strong> &nbsp;<span class="fc-lbl ' + cls + '" style="font-size:0.65rem;padding:0.05rem 0.3rem;border-radius:3px;background:rgba(255,255,255,0.07)">' + d.risk_level.toUpperCase() + '</span></div>' +
+        '<div>Precip: ' + pre + '</div>' +
+        '<div>Rain chance: ' + prob + '</div>' +
+        '<div>7-day total: ' + cum + '</div>' +
+      '</div>' +
       '<div class="fc-date">' + mmdd + '</div>' +
       '<div class="fc-score ' + cls + '">' + Math.round(d.risk_score) + '</div>' +
       '<div class="fc-lbl ' + cls + '">' + d.risk_level + '</div>' +
-      '<div class="fc-pre">' + pre + '</div>' +
+      '<div class="fc-pre">' + (d.precipitation_mm > 0 ? d.precipitation_mm.toFixed(1) + 'mm' : '\u2014') + '</div>' +
       '</div>';
   });
   html += '</div>';
-  html += '<p style="font-size:0.72rem;color:#4a6a8a;margin-top:0.6rem">&#9432; Hover a day for details. Scores are predictions &mdash; always check official emergency alerts.</p>';
+  html += '<p style="font-size:0.72rem;color:#4a6a8a;margin-top:0.6rem">&#9432; Hover any day card for full details. Scores are predictions &mdash; always check official emergency alerts.</p>';
   $s('forecast-grid').innerHTML = html;
 }
 
