@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Community Stories — FloodWise</title>
+  <link href="https://fonts.googleapis.com/css2?family=McLaren&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      min-height: 100%;
+      font-family: "McLaren", Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      color: #e2e8f0;
+      background:
+        radial-gradient(ellipse at 15% 50%, rgba(0,200,180,0.08) 0%, transparent 55%),
+        radial-gradient(ellipse at 85% 20%, rgba(80,50,220,0.11) 0%, transparent 45%),
+        radial-gradient(ellipse at 60% 85%, rgba(0,120,230,0.09) 0%, transparent 45%),
+        linear-gradient(160deg, #070d2a 0%, #04091c 40%, #0b1735 70%, #030c1a 100%);
+    }
+    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
+
+    /* ── Nav ─────────────────────────────────────────────────────────── */
+    .top-nav {
+      display: flex; align-items: center; justify-content: center;
+      gap: 0.6rem; margin-bottom: 2.2rem; flex-wrap: wrap;
+    }
+    .top-nav a {
+      text-decoration: none; color: #7cb8f5; font-size: 0.85rem;
+      padding: 0.35rem 0.9rem; border-radius: 20px;
+      border: 1px solid rgba(100,160,255,0.2);
+      transition: background .2s, color .2s;
+    }
+    .top-nav a:hover, .top-nav a.active {
+      background: rgba(100,160,255,0.15); color: #b8d9ff;
+    }
+
+    /* ── Header ──────────────────────────────────────────────────────── */
+    .page-header { text-align: center; margin-bottom: 2.5rem; }
+    .page-header h1 { font-size: 2rem; color: #b8d9ff; letter-spacing: 0.5px; }
+    .page-header p  { color: #7cb8f5; font-size: 0.95rem; margin-top: 0.4rem; }
+
+    /* ── Card shell ──────────────────────────────────────────────────── */
+    .card {
+      background: rgba(5,15,50,0.6);
+      border: 1px solid rgba(100,160,255,0.18);
+      border-radius: 14px; padding: 1.5rem 1.75rem;
+      backdrop-filter: blur(8px); margin-bottom: 1.6rem;
+    }
+    .card h2 { font-size: 1.1rem; color: #b8d9ff; margin-bottom: 1.1rem; }
+
+    /* ── Form ─────────────────────────────────────────────────────────── */
+    .form-row { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-bottom: 1rem; }
+    .form-col  { flex: 1 1 200px; display: flex; flex-direction: column; gap: 0.35rem; }
+    label { font-size: 0.78rem; color: #7cb8f5; text-transform: uppercase; letter-spacing: 0.5px; }
+    input[type="text"], input[type="date"], textarea {
+      background: rgba(255,255,255,0.07); border: 1px solid rgba(100,160,255,0.25);
+      border-radius: 8px; padding: 0.6rem 0.9rem; color: #e2e8f0;
+      font-family: "McLaren", Arial, sans-serif; font-size: 0.95rem;
+      outline: none; transition: border-color .2s; width: 100%;
+    }
+    input::placeholder, textarea::placeholder { color: #4a7096; }
+    input:focus, textarea:focus { border-color: rgba(100,160,255,0.55); }
+    textarea { resize: vertical; min-height: 110px; }
+
+    /* ── Impact (drop) selector ──────────────────────────────────────── */
+    .impact-row { display: flex; gap: 0.35rem; margin: 0.6rem 0; }
+    .impact-row label { font-size: 0; }  /* hide text labels */
+    .drop-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 1.6rem; opacity: 0.3; transition: opacity .15s, transform .15s;
+      padding: 0; line-height: 1;
+    }
+    .drop-btn.active { opacity: 1; transform: scale(1.15); }
+    .drop-btn:hover  { opacity: 0.75; }
+    .impact-hint { font-size: 0.78rem; color: #7cb8f5; margin-left: 0.5rem; align-self: center; }
+
+    /* ── Story textarea + AI enhance ─────────────────────────────────── */
+    .story-wrap { position: relative; }
+    .btn-enhance {
+      position: absolute; bottom: 0.55rem; right: 0.6rem;
+      background: rgba(56,189,248,0.13); border: 1px solid rgba(56,189,248,0.35);
+      border-radius: 8px; padding: 0.3rem 0.75rem; color: #38bdf8;
+      font-family: "McLaren", Arial, sans-serif; font-size: 0.8rem;
+      cursor: pointer; transition: background .2s;
+    }
+    .btn-enhance:hover { background: rgba(56,189,248,0.25); }
+    .enhance-toggle {
+      font-size: 0.78rem; color: #7cb8f5; margin-top: 0.35rem;
+      display: none; gap: 0.6rem;
+    }
+    .enhance-toggle.visible { display: flex; flex-wrap: wrap; align-items: center; }
+    .toggle-link {
+      color: #38bdf8; cursor: pointer; text-decoration: underline; font-size: 0.78rem;
+    }
+
+    /* ── Submit ──────────────────────────────────────────────────────── */
+    .btn-submit {
+      background: linear-gradient(135deg, #1d4ed8, #0891b2);
+      border: none; border-radius: 9px; padding: 0.7rem 1.8rem;
+      color: #fff; font-family: "McLaren", Arial, sans-serif;
+      font-size: 0.95rem; cursor: pointer; transition: opacity .2s;
+      margin-top: 0.8rem;
+    }
+    .btn-submit:hover { opacity: 0.88; }
+    .btn-submit:disabled { opacity: 0.45; cursor: not-allowed; }
+    .form-msg { font-size: 0.85rem; margin-top: 0.6rem; min-height: 1.2em; }
+    .form-msg.ok  { color: #4ade80; }
+    .form-msg.err { color: #f87171; }
+
+    /* ── Community stories grid ──────────────────────────────────────── */
+    .stories-header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 1.1rem;
+    }
+    .stories-header h2 { font-size: 1.1rem; color: #b8d9ff; }
+    .stories-count { font-size: 0.8rem; color: #64748b; }
+    .story-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+    .story-card {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px; padding: 1.1rem 1.2rem;
+      display: flex; flex-direction: column; gap: 0.55rem;
+    }
+    .story-meta {
+      display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem;
+    }
+    .story-author { font-size: 0.82rem; color: #7cb8f5; font-weight: 600; }
+    .story-loc    { font-size: 0.76rem; color: #4a7096; }
+    .story-date   { font-size: 0.75rem; color: #475569; white-space: nowrap; }
+    .story-drops  { font-size: 1rem; letter-spacing: 1px; }
+    .story-text   { font-size: 0.88rem; color: #cbd5e1; line-height: 1.55; }
+    .story-enhanced-label {
+      font-size: 0.72rem; color: #38bdf8; opacity: 0.7;
+      text-transform: uppercase; letter-spacing: 0.4px; margin-top: 0.2rem;
+    }
+    .no-stories { text-align: center; color: #475569; padding: 2.5rem 0; font-size: 0.9rem; }
+
+    /* ── Role selector ───────────────────────────────────────────────── */
+    .role-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 0.55rem; margin: 0.5rem 0 1.1rem;
+    }
+    .role-opt {
+      display: flex; align-items: flex-start; gap: 0.6rem;
+      background: rgba(255,255,255,0.04); border: 1.5px solid rgba(100,160,255,0.15);
+      border-radius: 10px; padding: 0.65rem 0.85rem; cursor: pointer;
+      transition: border-color .18s, background .18s;
+    }
+    .role-opt:hover { background: rgba(100,160,255,0.08); }
+    .role-opt.selected {
+      border-color: rgba(56,189,248,0.6); background: rgba(56,189,248,0.1);
+    }
+    .role-opt input[type="radio"] { display: none; }
+    .role-icon { font-size: 1.3rem; line-height: 1; flex-shrink: 0; margin-top: 1px; }
+    .role-label { font-size: 0.82rem; color: #b8d9ff; font-weight: 600; line-height: 1.2; }
+    .role-desc  { font-size: 0.73rem; color: #64748b; margin-top: 0.2rem; line-height: 1.35; }
+
+    /* ── Role badge on cards ─────────────────────────────────────────── */
+    .role-badge {
+      display: inline-flex; align-items: center; gap: 0.3rem;
+      font-size: 0.7rem; padding: 0.18rem 0.55rem; border-radius: 20px;
+      font-weight: 600; letter-spacing: 0.3px; white-space: nowrap;
+    }
+    .role-badge.app-user    { background: rgba(56,189,248,0.15); color: #38bdf8; border: 1px solid rgba(56,189,248,0.3); }
+    .role-badge.local-witness{ background: rgba(74,222,128,0.13); color: #4ade80; border: 1px solid rgba(74,222,128,0.3); }
+    .role-badge.expert       { background: rgba(251,191,36,0.13); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+    .role-badge.researcher   { background: rgba(167,139,250,0.15); color: #a78bfa; border: 1px solid rgba(167,139,250,0.3); }
+    .role-badge.skeptic      { background: rgba(248,113,113,0.13); color: #f87171; border: 1px solid rgba(248,113,113,0.3); }
+
+    /* ── Loading spinner ─────────────────────────────────────────────── */
+    .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 2px solid rgba(100,160,255,0.25); border-top-color: #7cb8f5;
+      border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav class="top-nav">
+    <a href="/">🌊 FloodWise</a>
+    <a href="/experiences" class="active">💬 Community Stories</a>
+    <a href="/flood-cam">🎥 Flood Cam</a>
+  </nav>
+
+  <!-- Header -->
+  <header class="page-header">
+    <h1>💬 Community Stories</h1>
+    <p>Real experiences from people who've faced severe weather — and how FloodWise helped them navigate it.</p>
+  </header>
+
+  <!-- Share form -->
+  <div class="card">
+    <h2>📝 Share What You Experienced</h2>
+
+    <div class="form-row">
+      <div class="form-col">
+        <label for="inp-name">Your name <span style="color:#475569">(optional)</span></label>
+        <input type="text" id="inp-name" placeholder="e.g. Jordan K.">
+      </div>
+      <div class="form-col">
+        <label for="inp-location">Where were you?</label>
+        <input type="text" id="inp-location" placeholder="City, region…">
+      </div>
+      <div class="form-col">
+        <label for="inp-date">Date of experience</label>
+        <input type="date" id="inp-date">
+      </div>
+    </div>
+
+    <!-- Who are you? -->
+    <label style="display:block;margin-bottom:0.55rem">What's your perspective on this?</label>
+    <div class="role-grid" id="role-grid">
+      <label class="role-opt selected" data-role="app-user">
+        <input type="radio" name="role" value="app-user" checked>
+        <div>
+          <div class="role-icon">📱</div>
+          <div class="role-label">FloodWise user</div>
+          <div class="role-desc">I used the app during this event</div>
+        </div>
+      </label>
+      <label class="role-opt" data-role="local-witness">
+        <input type="radio" name="role" value="local-witness">
+        <div>
+          <div class="role-icon">👁️</div>
+          <div class="role-label">Local witness</div>
+          <div class="role-desc">I was there and saw it first-hand</div>
+        </div>
+      </label>
+      <label class="role-opt" data-role="expert">
+        <input type="radio" name="role" value="expert">
+        <div>
+          <div class="role-icon">🧑‍🔬</div>
+          <div class="role-label">Expert / professional</div>
+          <div class="role-desc">Meteorologist, hydrologist, emergency manager…</div>
+        </div>
+      </label>
+      <label class="role-opt" data-role="researcher">
+        <input type="radio" name="role" value="researcher">
+        <div>
+          <div class="role-icon">📊</div>
+          <div class="role-label">Researcher / data source</div>
+          <div class="role-desc">I have records, reports, or data about this event</div>
+        </div>
+      </label>
+      <label class="role-opt" data-role="skeptic">
+        <input type="radio" name="role" value="skeptic">
+        <div>
+          <div class="role-icon">🔍</div>
+          <div class="role-label">Challenging the data</div>
+          <div class="role-desc">I think the app got something wrong here</div>
+        </div>
+      </label>
+    </div>
+
+    <!-- Impact drops -->
+    <label style="display:block;margin-bottom:0.4rem">How impactful was the situation?</label>
+    <div style="display:flex;align-items:center;gap:0.4rem;margin-bottom:1rem">
+      <div class="impact-row" id="impact-row">
+        <button type="button" class="drop-btn active" data-v="1" title="Minor">💧</button>
+        <button type="button" class="drop-btn" data-v="2" title="Moderate">💧</button>
+        <button type="button" class="drop-btn" data-v="3" title="Significant">💧</button>
+        <button type="button" class="drop-btn" data-v="4" title="Severe">💧</button>
+        <button type="button" class="drop-btn" data-v="5" title="Extreme">💧</button>
+      </div>
+      <span class="impact-hint" id="impact-hint">Minor situation</span>
+    </div>
+
+    <!-- Story textarea -->
+    <label for="inp-story" style="margin-bottom:0.4rem;display:block">
+      What happened? What did you witness?
+    </label>
+    <div class="story-wrap">
+      <textarea id="inp-story" placeholder="Describe what you experienced — the weather, the conditions, how FloodWise helped you prepare or respond…" style="padding-bottom:2.4rem"></textarea>
+      <button type="button" class="btn-enhance" id="btn-enhance">✨ Enhance my words</button>
+    </div>
+    <div class="enhance-toggle" id="enhance-toggle">
+      <span style="color:#64748b">AI-enhanced version ready —</span>
+      <span class="toggle-link" id="toggle-enhanced">show enhanced</span>
+      <span style="color:#64748b">·</span>
+      <span class="toggle-link" id="toggle-original">show original</span>
+    </div>
+
+    <button class="btn-submit" id="btn-submit">Share with the community</button>
+    <div class="form-msg" id="form-msg"></div>
+  </div>
+
+  <!-- Community stories -->
+  <div class="stories-header">
+    <h2>🌍 From the Community</h2>
+    <span class="stories-count" id="stories-count"></span>
+  </div>
+  <div id="story-grid" class="story-grid">
+    <div class="no-stories"><span class="spinner"></span> Loading stories…</div>
+  </div>
+
+{% raw %}
+<script>
+(function(){
+  const HINTS = ['Minor situation','Moderate conditions','Significant event','Severe conditions','Extreme emergency'];
+  const ROLE_META = {
+    'app-user':      { icon:'📱', label:'FloodWise user',        cls:'app-user' },
+    'local-witness': { icon:'👁️', label:'Local witness',         cls:'local-witness' },
+    'expert':        { icon:'🧑‍🔬', label:'Expert / professional', cls:'expert' },
+    'researcher':    { icon:'📊', label:'Researcher / data',     cls:'researcher' },
+    'skeptic':       { icon:'🔍', label:'Challenging the data',  cls:'skeptic' },
+  };
+  let selectedImpact = 1;
+  let selectedRole   = 'app-user';
+  let originalStory  = '';
+  let enhancedStory  = '';
+  let showingEnhanced = false;
+
+  // Set today's date
+  const inp = document.getElementById('inp-date');
+  inp.value = new Date().toISOString().slice(0,10);
+  inp.max   = new Date().toISOString().slice(0,10);
+
+  // Role selector
+  document.getElementById('role-grid').addEventListener('click', function(e){
+    const opt = e.target.closest('.role-opt');
+    if (!opt) return;
+    document.querySelectorAll('.role-opt').forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+    opt.querySelector('input').checked = true;
+    selectedRole = opt.dataset.role;
+  });
+
+  // Impact drops
+  document.getElementById('impact-row').addEventListener('click', function(e){
+    const btn = e.target.closest('.drop-btn');
+    if (!btn) return;
+    selectedImpact = parseInt(btn.dataset.v);
+    document.querySelectorAll('.drop-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.v) <= selectedImpact));
+    document.getElementById('impact-hint').textContent = HINTS[selectedImpact - 1];
+  });
+
+  // AI Enhance
+  document.getElementById('btn-enhance').addEventListener('click', async function(){
+    const text = document.getElementById('inp-story').value.trim();
+    if (!text) { alert('Write your story first, then enhance it.'); return; }
+    this.textContent = '⏳ Enhancing…';
+    this.disabled = true;
+    try {
+      const res  = await fetch('/api/reword', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({text})
+      });
+      const data = await res.json();
+      enhancedStory  = data.enhanced || text;
+      originalStory  = text;
+      showingEnhanced = true;
+      document.getElementById('inp-story').value = enhancedStory;
+      document.getElementById('enhance-toggle').classList.add('visible');
+    } catch(err) {
+      alert('Could not enhance — please try again.');
+    }
+    this.textContent = '✨ Enhance my words';
+    this.disabled = false;
+  });
+
+  document.getElementById('toggle-enhanced').addEventListener('click', function(){
+    if (!showingEnhanced){ document.getElementById('inp-story').value = enhancedStory; showingEnhanced = true; }
+  });
+  document.getElementById('toggle-original').addEventListener('click', function(){
+    if (showingEnhanced){ document.getElementById('inp-story').value = originalStory; showingEnhanced = false; }
+  });
+
+  // Submit
+  document.getElementById('btn-submit').addEventListener('click', async function(){
+    const story = document.getElementById('inp-story').value.trim();
+    if (!story) { setMsg('Please write your experience before sharing.', 'err'); return; }
+    this.disabled = true;
+    setMsg('', '');
+    try {
+      const res = await fetch('/api/experiences', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          name:     document.getElementById('inp-name').value.trim() || 'Anonymous',
+          role:     selectedRole,
+          location: document.getElementById('inp-location').value.trim(),
+          exp_date: document.getElementById('inp-date').value,
+          story,
+          impact:   selectedImpact,
+        })
+      });
+      if (res.ok) {
+        setMsg('Your story has been shared. Thank you! 💙', 'ok');
+        document.getElementById('inp-story').value = '';
+        document.getElementById('inp-name').value  = '';
+        document.getElementById('inp-location').value = '';
+        document.getElementById('enhance-toggle').classList.remove('visible');
+        originalStory = enhancedStory = '';
+        loadStories();
+      } else {
+        const e = await res.json();
+        setMsg('Error: ' + (e.error || 'could not submit'), 'err');
+      }
+    } catch(err) {
+      setMsg('Network error — please try again.', 'err');
+    }
+    this.disabled = false;
+  });
+
+  function setMsg(txt, cls){
+    const el = document.getElementById('form-msg');
+    el.textContent = txt;
+    el.className   = 'form-msg ' + cls;
+  }
+
+  // Render drops
+  function drops(n){
+    return Array.from({length:5}, (_,i) =>
+      `<span style="opacity:${i < n ? 1 : 0.2}">💧</span>`
+    ).join('');
+  }
+
+  // Render role badge
+  function roleBadge(role){
+    const m = ROLE_META[role] || ROLE_META['app-user'];
+    return `<span class="role-badge ${m.cls}">${m.icon} ${m.label}</span>`;
+  }
+
+  // Load stories
+  async function loadStories(){
+    const grid = document.getElementById('story-grid');
+    try {
+      const res  = await fetch('/api/experiences');
+      const rows = await res.json();
+      document.getElementById('stories-count').textContent =
+        rows.length ? rows.length + ' stor' + (rows.length === 1 ? 'y' : 'ies') : '';
+      if (!rows.length){
+        grid.innerHTML = '<div class="no-stories">No stories yet — be the first to share yours.</div>';
+        return;
+      }
+      grid.innerHTML = rows.map(r => {
+        const displayText = (r.enhanced && r.enhanced.trim()) ? r.enhanced : r.story;
+        const isEnhanced  = !!(r.enhanced && r.enhanced.trim() && r.enhanced !== r.story);
+        const dateStr = r.exp_date
+          ? new Date(r.exp_date + 'T00:00:00').toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'})
+          : (r.created_at ? r.created_at.slice(0,10) : '');
+        return `<div class="story-card">
+          <div class="story-meta">
+            <div>
+              <div class="story-author">${esc(r.name || 'Anonymous')}</div>
+              ${r.location ? `<div class="story-loc">📍 ${esc(r.location)}</div>` : ''}
+            </div>
+            <div style="text-align:right">
+              <div class="story-date">${dateStr}</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.4rem">
+            <div class="story-drops">${drops(r.impact || 3)}</div>
+            ${roleBadge(r.role || 'app-user')}
+          </div>
+          <div class="story-text">${esc(displayText)}</div>
+          ${isEnhanced ? '<div class="story-enhanced-label">✨ AI-enhanced</div>' : ''}
+        </div>`;
+      }).join('');
+    } catch(err) {
+      grid.innerHTML = '<div class="no-stories">Could not load stories — refresh to try again.</div>';
+    }
+  }
+
+  function esc(s){ const d=document.createElement('div'); d.textContent=s||''; return d.innerHTML; }
+
+  loadStories();
+})();
+</script>
+{% endraw %}
+</body>
+</html>

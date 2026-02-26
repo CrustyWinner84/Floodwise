@@ -2186,6 +2186,7 @@ def _init_exp_db():
             CREATE TABLE IF NOT EXISTS experiences (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 name         TEXT    DEFAULT "Anonymous",
+                role         TEXT    DEFAULT "app-user",
                 location     TEXT    DEFAULT "",
                 exp_date     TEXT    DEFAULT "",
                 story        TEXT    NOT NULL,
@@ -2194,6 +2195,12 @@ def _init_exp_db():
                 created_at   TEXT    DEFAULT (datetime("now"))
             )
         ''')
+        # Add role column if upgrading from older schema
+        try:
+            db.execute('ALTER TABLE experiences ADD COLUMN role TEXT DEFAULT "app-user"')
+            db.commit()
+        except Exception:
+            pass  # column already exists
         db.commit()
 
 
@@ -2301,15 +2308,19 @@ def api_experiences_post():
     if not story:
         return jsonify({'error': 'story is required'}), 400
     name     = (data.get('name')     or 'Anonymous').strip()[:80]
+    role     = (data.get('role')     or 'app-user').strip()[:40]
     location = (data.get('location') or '').strip()[:120]
     exp_date = (data.get('exp_date') or '').strip()[:20]
     impact   = max(1, min(5, int(data.get('impact', 3))))
     enhanced = enhance_vocabulary(story)
+    _valid_roles = {'app-user', 'local-witness', 'expert', 'researcher', 'skeptic'}
+    if role not in _valid_roles:
+        role = 'app-user'
     try:
         with _exp_db() as db:
             cur = db.execute(
-                'INSERT INTO experiences (name, location, exp_date, story, enhanced, impact) VALUES (?,?,?,?,?,?)',
-                (name, location, exp_date, story, enhanced, impact)
+                'INSERT INTO experiences (name, role, location, exp_date, story, enhanced, impact) VALUES (?,?,?,?,?,?,?)',
+                (name, role, location, exp_date, story, enhanced, impact)
             )
             db.commit()
             new_id = cur.lastrowid
