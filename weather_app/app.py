@@ -1273,23 +1273,50 @@ def api_flood_risk_date():
     logger.info('Getting flood risk for %s on %s (elevation: %s m)', display_name, date_str, elevation)
     
     try:
-        # Get historical weather data for a 30-day window around the target date
-        start_date_obj = target_date - timedelta(days=15)
-        end_date_obj = target_date + timedelta(days=15)
-        
-        start_date = start_date_obj.strftime('%Y-%m-%d')
-        end_date = end_date_obj.strftime('%Y-%m-%d')
-        
-        historical_data = get_historical_weather(lat, lon, start_date, end_date)
-        
-        if not historical_data or 'daily' not in historical_data:
-            return jsonify({'error': 'could not retrieve historical weather data for this date'}), 500
-        
-        daily = historical_data['daily']
-        
-        # Get weather info for the target date
-        if 'time' not in daily or date_str not in daily['time']:
-            return jsonify({'error': f'no weather data available for date {date_str}. Available dates in archive: check Open-Meteo historical data limits'}), 404
+        # Determine the best weather API based on date proximity to today.
+        # Open-Meteo archive has a ~5-day delay so recent dates need the forecast API.
+        today = datetime.now().date()
+        target = target_date.date()
+        days_diff = (target - today).days          # negative = past, positive = future
+
+        daily = None
+
+        # For recent past (≤92 days) or near future (≤16 days), try forecast API first
+        if -92 <= days_diff <= 16:
+            try:
+                _past = min(92, max(7, -days_diff + 1)) if days_diff <= 0 else 7
+                _fore = min(16, max(1, days_diff + 1))  if days_diff >= 0 else 1
+                _furl = 'https://api.open-meteo.com/v1/forecast'
+                _fpar = {
+                    'latitude': lat, 'longitude': lon,
+                    'daily': 'temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode',
+                    'past_days': _past,
+                    'forecast_days': _fore,
+                    'temperature_unit': 'celsius',
+                    'timezone': 'UTC',
+                }
+                _fr = requests.get(_furl, params=_fpar, timeout=8)
+                _fr.raise_for_status()
+                _fd = _fr.json().get('daily', {})
+                if date_str in _fd.get('time', []):
+                    daily = _fd
+            except Exception:
+                logger.debug('Forecast API fallback failed for %s', date_str)
+
+        # Fall back to archive API for older dates (or if forecast didn't cover this date)
+        if daily is None:
+            start_date_obj = target_date - timedelta(days=15)
+            end_date_obj   = target_date + timedelta(days=15)
+            start_date = start_date_obj.strftime('%Y-%m-%d')
+            end_date   = end_date_obj.strftime('%Y-%m-%d')
+            historical_data = get_historical_weather(lat, lon, start_date, end_date)
+            if historical_data and 'daily' in historical_data:
+                _ad = historical_data['daily']
+                if date_str in _ad.get('time', []):
+                    daily = _ad
+
+        if daily is None or date_str not in daily.get('time', []):
+            return jsonify({'error': f'no weather data available for {date_str}'}), 404
         
         date_idx = daily['time'].index(date_str)
         
