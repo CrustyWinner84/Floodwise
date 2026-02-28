@@ -785,7 +785,7 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
         elif cumulative_precip > 80:  cum_risk = 18
         elif cumulative_precip > 40:  cum_risk = 10
         elif cumulative_precip > 15:  cum_risk = 4
-        else:                         cum_risk = ∂
+        else:                         cum_risk = 0
 
         # --- FEMA capped at 20 (was 35) ---
         fema_risk = min(20, (fema_data or {}).get('historical_risk_score', 0))
