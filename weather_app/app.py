@@ -2365,6 +2365,180 @@ def api_reword():
     return jsonify({'enhanced': enhance_vocabulary(text)})
 
 
+# ---------------------------------------------------------------------------
+# Traffic / Weather Camera APIs
+# ---------------------------------------------------------------------------
+
+@app.route('/api/traffic-cams')
+def api_traffic_cams():
+    """Find public traffic/weather cameras near a location.
+    Uses the Windy.com webcams API (free tier, 1000/day) and fallback
+    to 511 / DOT sources.
+    """
+    lat = request.args.get('lat', type=float)
+    lon = request.args.get('lon', type=float)
+    location = request.args.get('location', '').strip()
+    radius = request.args.get('radius', default=30, type=int)  # km
+
+    if lat is None or lon is None:
+        if not location:
+            return jsonify({'error': 'Provide "location" or "lat"+"lon"'}), 400
+        geo = geocode(location)
+        if not geo:
+            return jsonify({'error': 'location not found'}), 404
+        lat, lon, _, _ = geo
+
+    cameras = []
+
+    # --- Source 1: Windy Webcams API (free, no key needed for basic) ---
+    try:
+        windy_url = f'https://api.windy.com/webcams/api/v3/webcams'
+        windy_params = {
+            'nearby': f'{lat},{lon},{radius}',
+            'include': 'images,location',
+            'limit': 12,
+        }
+        windy_headers = {
+            'x-windy-api-key': os.environ.get('WINDY_API_KEY', ''),
+        }
+        # If no API key, try the public endpoint
+        if not windy_headers['x-windy-api-key']:
+            # Fallback: use the legacy v2 no-key endpoint
+            windy_url = f'https://api.windy.com/api/webcams/v2/list/nearby={lat},{lon},{radius}/limit=12'
+            windy_params = {'show': 'webcams:image,location'}
+            windy_headers = {}
+
+        w_resp = requests.get(windy_url, params=windy_params, headers=windy_headers, timeout=8)
+        if w_resp.ok:
+            w_data = w_resp.json()
+            # v3 format
+            webcams = w_data.get('webcams', [])
+            # v2 format
+            if not webcams and 'result' in w_data:
+                webcams = w_data.get('result', {}).get('webcams', [])
+            for wc in webcams[:12]:
+                img = ''
+                # v3
+                if 'images' in wc:
+                    img = (wc['images'].get('current', {}).get('preview', '') or
+                           wc['images'].get('current', {}).get('thumbnail', ''))
+                # v2
+                elif 'image' in wc:
+                    img = (wc['image'].get('current', {}).get('preview', '') or
+                           wc['image'].get('current', {}).get('thumbnail', ''))
+                loc_info = wc.get('location', {})
+                if img:
+                    cameras.append({
+                        'name': wc.get('title', 'Webcam'),
+                        'image_url': img,
+                        'description': loc_info.get('city', '') + (', ' + loc_info.get('region', '') if loc_info.get('region') else ''),
+                        'location': f"{loc_info.get('latitude', lat)},{loc_info.get('longitude', lon)}",
+                        'source': 'Windy Webcams',
+                        'distance_km': None,
+                    })
+    except Exception as e:
+        logger.debug('Windy webcams lookup failed: %s', e)
+
+    # --- Source 2: WSDOT (Washington State) traffic cameras ---
+    try:
+        wsdot_url = 'https://data.wsdot.wa.gov/log/casa/traveler/cameras.json'
+        ws_resp = requests.get(wsdot_url, timeout=8)
+        if ws_resp.ok:
+            ws_cams = ws_resp.json()
+            if isinstance(ws_cams, list):
+                import math
+                for cam in ws_cams:
+                    clat = cam.get('CameraLocation', {}).get('Latitude') or cam.get('Latitude')
+                    clon = cam.get('CameraLocation', {}).get('Longitude') or cam.get('Longitude')
+                    if clat and clon:
+                        dist = math.sqrt((lat - clat)**2 + (lon - clon)**2) * 111
+                        if dist <= radius:
+                            img_url = cam.get('ImageURL') or cam.get('ImageUrl') or ''
+                            if img_url:
+                                cameras.append({
+                                    'name': cam.get('Title') or cam.get('Description') or 'WSDOT Camera',
+                                    'image_url': img_url,
+                                    'description': cam.get('Description') or cam.get('RoadName', ''),
+                                    'location': f'{clat},{clon}',
+                                    'source': 'WSDOT',
+                                    'distance_km': round(dist, 1),
+                                })
+    except Exception as e:
+        logger.debug('WSDOT cameras lookup failed: %s', e)
+
+    # --- Source 3: Generic 511 / Caltrans / other DOT APIs ---
+    try:
+        # Caltrans CCTV (California)
+        ct_url = 'https://cwwp2.dot.ca.gov/data/d3/cctv/cctvStatusD03.json'
+        ct_resp = requests.get(ct_url, timeout=6)
+        if ct_resp.ok:
+            ct_data = ct_resp.json()
+            ct_cams = ct_data.get('data', []) if isinstance(ct_data, dict) else ct_data if isinstance(ct_data, list) else []
+            import math
+            for cam in ct_cams[:100]:
+                loc2 = cam.get('location', {}) or cam.get('cctv', {}).get('location', {}) or {}
+                clat = loc2.get('latitude')
+                clon = loc2.get('longitude')
+                if clat and clon:
+                    dist = math.sqrt((lat - float(clat))**2 + (lon - float(clon))**2) * 111
+                    if dist <= radius:
+                        img_url = ''
+                        img_data = cam.get('cctv', {}).get('imageData', {}) or cam.get('imageData', {}) or {}
+                        if isinstance(img_data, dict):
+                            img_url = img_data.get('static', {}).get('currentImageURL', '') or img_data.get('streamingVideoURL', '')
+                        if img_url:
+                            cameras.append({
+                                'name': cam.get('cctv', {}).get('location', {}).get('locationName', '') or 'Caltrans Camera',
+                                'image_url': img_url,
+                                'description': cam.get('cctv', {}).get('location', {}).get('route', ''),
+                                'location': f'{clat},{clon}',
+                                'source': 'Caltrans',
+                                'distance_km': round(dist, 1),
+                            })
+    except Exception as e:
+        logger.debug('Caltrans cameras lookup failed: %s', e)
+
+    # Sort by distance if available
+    cameras.sort(key=lambda c: c.get('distance_km') or 999)
+
+    return jsonify({
+        'lat': lat, 'lon': lon,
+        'radius_km': radius,
+        'cameras': cameras[:15],
+    })
+
+
+@app.route('/api/cam-proxy')
+def api_cam_proxy():
+    """Proxy a camera image to bypass CORS restrictions.
+    Only allows image content types for safety.
+    """
+    url = request.args.get('url', '').strip()
+    if not url:
+        return jsonify({'error': 'url parameter required'}), 400
+    # Basic URL validation
+    if not url.startswith('http://') and not url.startswith('https://'):
+        return jsonify({'error': 'invalid url'}), 400
+
+    try:
+        resp = requests.get(url, timeout=10, stream=True, headers={
+            'User-Agent': 'Mozilla/5.0 (compatible; FloodWise/1.0)',
+        })
+        resp.raise_for_status()
+        ct = resp.headers.get('Content-Type', '')
+        if 'image' not in ct and 'octet-stream' not in ct:
+            return jsonify({'error': 'not an image'}), 400
+        from io import BytesIO
+        img_data = BytesIO(resp.content)
+        response = make_response(img_data.getvalue())
+        response.headers['Content-Type'] = ct or 'image/jpeg'
+        response.headers['Cache-Control'] = 'public, max-age=30'
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        return response
+    except Exception as e:
+        return jsonify({'error': str(e)}), 502
+
+
 @app.route('/flood-cam')
 def page_flood_cam():
     return render_template('flood_cam.html')
