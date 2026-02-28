@@ -785,7 +785,7 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
         elif cumulative_precip > 80:  cum_risk = 18
         elif cumulative_precip > 40:  cum_risk = 10
         elif cumulative_precip > 15:  cum_risk = 4
-        else:                         cum_risk = 0
+        else:                         cum_risk = ∂
 
         # --- FEMA capped at 20 (was 35) ---
         fema_risk = min(20, (fema_data or {}).get('historical_risk_score', 0))
@@ -1633,6 +1633,17 @@ def api_ai_weather():
         geo = _extract_place(question)
         if geo:
             lat, lon, loc_name, _ = geo
+        else:
+            # Fallback: try the last 1-3 words of the question as a place name
+            # Handles patterns like "Should I carry an umbrella today in Mumbai"
+            _words_raw = re.split(r'[\s,]+', question.rstrip('?!. '))
+            for n in (3, 2, 1):
+                if len(_words_raw) >= n:
+                    _candidate = ' '.join(_words_raw[-n:])
+                    _geo2 = _try_geocode(_candidate)
+                    if _geo2:
+                        lat, lon, loc_name, _ = _geo2
+                        break
 
     # --- Extract a specific date from the question (enables historical queries) ---
     from datetime import datetime as _dt_ai, timedelta as _td_ai
@@ -1813,7 +1824,7 @@ def api_ai_weather():
                           "but always check local authority warnings for real-time updates.")
 
     # --- Rain / precipitation ---
-    elif any(w in q_lower for w in ['rain','precip','shower','drizzle','wet','umbrella']):
+    elif any(w in q_lower for w in ['rain','precip','shower','drizzle','wet']):
         if no_loc:
             answer = "Try asking: **'Will it rain in Seattle this week?'** — I'll pull the live forecast!"
         elif _hist_weather_day:
@@ -1950,20 +1961,234 @@ def api_ai_weather():
             answer = (f"Fog or mist is expected on **{fog_days} day(s)** in the next week for "
                       f"**{place}**. High humidity and fog reduce visibility — drive with caution.")
 
-    # --- Generic fallback ---
+    # --- Hiking / trail / outdoor walk ---
+    elif any(w in q_lower for w in ['hik','trail','trek','backpack','walk outdoor','nature walk']):
+        if no_loc:
+            answer = "Try: **'Is it good for hiking in Mt. Rainier this weekend?'**"
+        else:
+            rain_days = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 2)
+            tmaxs = forecast_daily.get('temperature_2m_max', [])
+            winds = forecast_daily.get('windspeed_10m_max', [])
+            avg_t = sum(v for v in tmaxs if v is not None) / max(len([v for v in tmaxs if v is not None]), 1)
+            max_w = max((v for v in winds if v is not None), default=0)
+            tips = []
+            if rain_days >= 3: tips.append('🌧️ Pack rain gear — multiple wet days ahead')
+            elif rain_days == 0: tips.append('☀️ Dry conditions — great trail weather')
+            else: tips.append(f'🌦️ {rain_days} day(s) with rain — check before you head out')
+            if avg_t < 5: tips.append('🧤 Cold temps — dress in warm layers')
+            elif avg_t > 28: tips.append('🥵 Hot — bring extra water, start early')
+            if max_w > 50: tips.append('💨 Strong winds expected — exposed ridges may be dangerous')
+            tips.append(f'🌡️ Average high: {avg_t:.0f}°C | Max wind: {max_w:.0f} km/h')
+            answer = f"**Hiking outlook for {place}:**\n" + '\n'.join(f"• {t}" for t in tips)
+
+    # --- BBQ / picnic / outdoor party ---
+    elif any(w in q_lower for w in ['bbq','barbecue','grill','picnic','cookout','outdoor party','outdoor event','block party']):
+        if no_loc:
+            answer = "Try: **'Good day for a BBQ in Tacoma this weekend?'**"
+        else:
+            clear = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) <= 3)
+            rain = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 1)
+            tmaxs = forecast_daily.get('temperature_2m_max', [])
+            avg_t = sum(v for v in tmaxs if v is not None) / max(len([v for v in tmaxs if v is not None]), 1)
+            if clear >= 4 and rain <= 1 and avg_t > 15:
+                answer = f"**Great week for outdoor plans in {place}!** 🍖☀️ {clear} clear days, avg highs {avg_t:.0f}°C. Fire up the grill!"
+            elif rain >= 3:
+                answer = f"Hmm, **{rain} rainy days** ahead in {place} 🌧️ — you might want a backup indoor plan or a canopy. Avg highs: {avg_t:.0f}°C."
+            else:
+                answer = f"Mixed forecast for {place}: {clear} clear days, {rain} rainy. Average highs: {avg_t:.0f}°C. Check the daily breakdown to pick the best day! 🌤️"
+
+    # --- Running / jogging / cycling / exercise ---
+    elif any(w in q_lower for w in ['run','jog','running','jogging','cycl','biking','bike','exercise','workout','marathon','training']):
+        if no_loc:
+            answer = "Try: **'Good running weather in Bellevue this week?'**"
+        else:
+            tmaxs = forecast_daily.get('temperature_2m_max', [])
+            tmins = forecast_daily.get('temperature_2m_min', [])
+            winds = forecast_daily.get('windspeed_10m_max', [])
+            rain_days = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 1)
+            avg_hi = sum(v for v in tmaxs if v is not None) / max(len([v for v in tmaxs if v is not None]), 1)
+            avg_lo = sum(v for v in tmins if v is not None) / max(len([v for v in tmins if v is not None]), 1)
+            tips = []
+            if 10 <= avg_hi <= 22: tips.append('✅ Ideal temperature range for running/cycling')
+            elif avg_hi > 28: tips.append('⚠️ Hot — hydrate well, run early morning or evening')
+            elif avg_hi < 5: tips.append('🧤 Cold — wear layers, protect extremities')
+            if rain_days >= 3: tips.append(f'🌧️ {rain_days} wet days — waterproof shoes recommended')
+            else: tips.append(f'🌤️ Mostly dry — {rain_days} day(s) with rain')
+            max_w = max((v for v in winds if v is not None), default=0)
+            if max_w > 40: tips.append(f'💨 Gusts up to {max_w:.0f} km/h — headwind on exposed routes')
+            tips.append(f'🌡️ Highs: {avg_hi:.0f}°C, Lows: {avg_lo:.0f}°C')
+            answer = f"**Running/cycling outlook for {place}:**\n" + '\n'.join(f"• {t}" for t in tips)
+
+    # --- Beach / swim / surf ---
+    elif any(w in q_lower for w in ['beach','swim','surf','ocean','lake','pool','water park','kayak','canoe','boat','sailing']):
+        if no_loc:
+            answer = "Try: **'Beach weather in Long Beach this weekend?'**"
+        else:
+            tmaxs = forecast_daily.get('temperature_2m_max', [])
+            clear = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) <= 3)
+            avg_t = sum(v for v in tmaxs if v is not None) / max(len([v for v in tmaxs if v is not None]), 1)
+            if avg_t > 24 and clear >= 3:
+                answer = f"**Great beach/water weather in {place}!** 🏖️ {clear} sunny days, avg highs {avg_t:.0f}°C. Don't forget sunscreen!"
+            elif avg_t < 15:
+                answer = f"It's on the cool side in {place} ({avg_t:.0f}°C average). 🥶 Not ideal for swimming — consider a wetsuit or indoor pool."
+            else:
+                answer = f"Mixed conditions in {place}: {clear} clear days, avg highs {avg_t:.0f}°C. Pick a sunny day from the forecast for your best beach day! 🌊"
+
+    # --- Fishing ---
+    elif any(w in q_lower for w in ['fish','fishing','angling','casting']):
+        if no_loc:
+            answer = "Try: **'Good fishing weather in Puget Sound this week?'**"
+        else:
+            rain = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 2)
+            winds = forecast_daily.get('windspeed_10m_max', [])
+            max_w = max((v for v in winds if v is not None), default=0)
+            tips = ['Overcast/light drizzle days are often best for fishing 🎣']
+            if max_w > 40: tips.append(f'⚠️ Strong winds ({max_w:.0f} km/h) — dangerous on open water')
+            if rain >= 4: tips.append('🌧️ Heavy rain can muddy rivers and reduce visibility')
+            answer = f"**Fishing outlook for {place}:**\n" + '\n'.join(f"• {t}" for t in tips)
+
+    # --- Road trip / commute / driving ---
+    elif any(w in q_lower for w in ['road trip','drive','driving','commut','traffic','travel','road condition']):
+        if no_loc:
+            answer = "Try: **'Driving conditions on I-90 near Snoqualmie this weekend?'**"
+        else:
+            snow_days = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) in range(71, 78))
+            rain_days = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 5)
+            fog_days = sum(1 for c in forecast_daily.get('weathercode', []) if c in (45, 48))
+            winds = forecast_daily.get('windspeed_10m_max', [])
+            max_w = max((v for v in winds if v is not None), default=0)
+            tips = []
+            if snow_days: tips.append(f'❄️ {snow_days} day(s) with snow/ice — chains may be required on passes')
+            if rain_days: tips.append(f'🌧️ {rain_days} day(s) of heavy rain — reduced visibility, hydroplaning risk')
+            if fog_days: tips.append(f'🌫️ {fog_days} day(s) with fog — drive with low beams')
+            if max_w > 50: tips.append(f'💨 Strong winds ({max_w:.0f} km/h) — be cautious with high-profile vehicles')
+            if not tips: tips.append('✅ Clear driving conditions expected — enjoy the trip!')
+            answer = f"**Driving outlook for {place}:**\n" + '\n'.join(f"• {t}" for t in tips)
+
+    # --- Gardening / farming / planting ---
+    elif any(w in q_lower for w in ['garden','plant','planting','farming','mow','lawn','harvest','compost','seed']):
+        if no_loc:
+            answer = "Try: **'Good planting weather in Yakima this week?'**"
+        else:
+            tmins = forecast_daily.get('temperature_2m_min', [])
+            rain = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 0.5)
+            frost = sum(1 for v in tmins if v is not None and float(v) < 1)
+            tips = []
+            if frost: tips.append(f'⚠️ {frost} night(s) near or below freezing — protect tender plants!')
+            else: tips.append('✅ No frost risk — safe for planting')
+            if rain >= 3: tips.append(f'🌧️ {rain} rainy days — great for newly planted seeds, skip watering')
+            elif rain == 0: tips.append('☀️ Dry week — make sure to water regularly')
+            answer = f"**Gardening outlook for {place}:**\n" + '\n'.join(f"• {t}" for t in tips)
+
+    # --- Wedding / outdoor ceremony / party / event ---
+    elif any(w in q_lower for w in ['wedding','ceremony','party','celebration','graduation','prom','reception']):
+        if no_loc:
+            answer = "Try: **'Weather for an outdoor wedding in Leavenworth this Saturday?'**"
+        else:
+            times = forecast_daily.get('time', [])
+            precips = forecast_daily.get('precipitation_sum', [])
+            tmaxs = forecast_daily.get('temperature_2m_max', [])
+            codes = forecast_daily.get('weathercode', [])
+            best_day = None
+            best_score = -1
+            for i, d in enumerate(times[:7]):
+                p = float(precips[i]) if i < len(precips) and precips[i] is not None else 99
+                c = int(codes[i]) if i < len(codes) and codes[i] is not None else 99
+                t = float(tmaxs[i]) if i < len(tmaxs) and tmaxs[i] is not None else 0
+                score = (10 if p < 1 else 5 if p < 5 else 0) + (5 if c <= 3 else 2 if c <= 55 else 0) + (5 if 15 < t < 28 else 0)
+                if score > best_score:
+                    best_score, best_day = score, d
+            rain_days = sum(1 for v in precips if v and float(v) > 1)
+            answer = (f"**Outdoor event outlook for {place}:**\n"
+                      f"• Best day this week: **{best_day}** 🎉\n"
+                      f"• {rain_days} day(s) with rain in the forecast\n"
+                      f"• {'Have a backup indoor option ready 🏠' if rain_days >= 3 else 'Conditions look favorable! ☀️'}")
+
+    # --- Photography / stargazing ---
+    elif any(w in q_lower for w in ['photo','photograph','camera','sunset','sunrise','stargaz','aurora','northern light']):
+        if no_loc:
+            answer = "Try: **'Good sunset photography weather in Olympic Peninsula?'**"
+        else:
+            clear = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) <= 2)
+            partly = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) == 2)
+            answer = (f"**Photography outlook for {place}:**\n"
+                      f"• {clear} clear/mostly clear day(s) — great for golden hour & stargazing 📸\n"
+                      f"• {partly} partly cloudy day(s) — dramatic sunset/sunrise potential\n"
+                      f"• {'Minimal cloud cover — perfect for astrophotography! 🌌' if clear >= 4 else 'Check daily forecast to pick the clearest evening.'}")
+
+    # --- Dog walking / pet ---
+    elif any(w in q_lower for w in ['dog','pet','walk my','walking my','puppy']):
+        if no_loc:
+            answer = "Try: **'Good dog walking weather in Redmond this week?'**"
+        else:
+            tmaxs = forecast_daily.get('temperature_2m_max', [])
+            rain = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 1)
+            avg_t = sum(v for v in tmaxs if v is not None) / max(len([v for v in tmaxs if v is not None]), 1)
+            tips = []
+            if avg_t > 30: tips.append('🥵 Hot pavement — walk early morning or late evening to protect paws')
+            elif avg_t < 0: tips.append('❄️ Very cold — short walks, consider dog booties')
+            else: tips.append(f'🌡️ Comfortable temps ({avg_t:.0f}°C) for walks')
+            if rain >= 3: tips.append(f'🌧️ {rain} wet days — keep a towel handy!')
+            else: tips.append(f'🌤️ Mostly dry — {rain} day(s) with rain')
+            answer = f"**Dog walking outlook for {place}:** 🐕\n" + '\n'.join(f"• {t}" for t in tips)
+
+    # --- Umbrella / what to wear / clothing ---
+    elif any(w in q_lower for w in ['umbrella','wear','dress','jacket','coat','layer','cloth','outfit','attire','pack','bring','carry']):
+        if no_loc:
+            answer = "Try: **'Should I bring an umbrella in Seattle today?'**"
+        else:
+            tmaxs = forecast_daily.get('temperature_2m_max', [])
+            tmins = forecast_daily.get('temperature_2m_min', [])
+            rain_days = sum(1 for v in forecast_daily.get('precipitation_sum', []) if v and float(v) > 0.5)
+            avg_hi = sum(v for v in tmaxs if v is not None) / max(len([v for v in tmaxs if v is not None]), 1)
+            avg_lo = sum(v for v in tmins if v is not None) / max(len([v for v in tmins if v is not None]), 1)
+            tips = []
+            if rain_days >= 2: tips.append(f'☂️ Yes, bring an umbrella! {rain_days} day(s) with rain expected')
+            else: tips.append('☀️ Mostly dry — umbrella probably not needed')
+            if avg_hi > 25: tips.append('👕 Light, breathable clothing — it will be warm')
+            elif avg_hi > 15: tips.append('🧥 Light jacket recommended for mornings/evenings')
+            elif avg_hi > 5: tips.append('🧥 Wear a warm jacket and layers')
+            else: tips.append('🧤 Bundle up! Heavy coat, gloves, hat recommended')
+            if avg_lo < 3: tips.append('❄️ Near-freezing lows — warm layers essential')
+            answer = f"**What to wear in {place}:**\n" + '\n'.join(f"• {t}" for t in tips)
+
+    # --- Generic fallback — smart weather-based lifestyle advisor ---
     else:
         if not no_loc and ctx_lines:
-            answer = (f"Here's a quick weather summary for **{place}**:\n{chr(10).join(ctx_lines[1:4])}\n\n"
-                      "Ask me about rain, flooding, temperature, wind, snow, ski conditions, UV, or evacuation safety!")
+            # Build a smart summary with actionable advice
+            tmaxs = forecast_daily.get('temperature_2m_max', [])
+            tmins = forecast_daily.get('temperature_2m_min', [])
+            precips = forecast_daily.get('precipitation_sum', [])
+            avg_hi = sum(v for v in tmaxs if v is not None) / max(len([v for v in tmaxs if v is not None]), 1)
+            rain_days = sum(1 for v in precips if v and float(v) > 1)
+            snow_days = sum(1 for c in forecast_daily.get('weathercode', []) if c is not None and int(c) in range(71, 78))
+            tips = []
+            if rain_days >= 3: tips.append(f'🌧️ Wet week — {rain_days} rainy days, keep an umbrella handy')
+            elif rain_days == 0: tips.append('☀️ Dry week — great for outdoor activities')
+            else: tips.append(f'🌦️ {rain_days} day(s) with rain, otherwise looking good')
+            if snow_days: tips.append(f'❄️ {snow_days} day(s) with snow — check road conditions')
+            if avg_hi > 25: tips.append('🥵 Warm — stay hydrated, apply sunscreen')
+            elif avg_hi < 5: tips.append('🧤 Cold — dress warmly, watch for ice')
+            tips_str = '\n'.join(f"• {t}" for t in tips)
+            forecast_str = '\n'.join(ctx_lines[1:4])
+            answer = (f"**Weather overview for {place}:**\n{forecast_str}\n\n"
+                      f"**Tips:**\n{tips_str}\n\n"
+                      "Ask me about **skiing, hiking, BBQ, driving, fishing, gardening, running, beach, photography, "
+                      "events, clothing advice** — or any weather question!")
         elif no_loc:
             answer = ("I'm your **FloodWise AI** weather assistant! 🌊\n\n"
-                      "Just ask me about any place — no need to search first! Try:\n"
-                      "• *Will it rain in Seattle this week?*\n"
-                      "• *Is there flood risk in New Orleans?*\n"
-                      "• *How cold will Denver be this week?*")
+                      "Just ask me about any place — I can help with:\n"
+                      "• ☂️ *Should I bring an umbrella in Seattle?*\n"
+                      "• ⛷️ *Skiing conditions at Snoqualmie Pass this weekend?*\n"
+                      "• 🥾 *Good hiking weather near Mt. Rainier?*\n"
+                      "• 🍖 *BBQ weather in Tacoma this Saturday?*\n"
+                      "• 🚗 *Driving conditions on I-90?*\n"
+                      "• 🌊 *Is there flood risk in New Orleans?*\n"
+                      "• 📸 *Clear skies for stargazing in Ellensburg?*")
         else:
             answer = (f"I'm your FloodWise weather assistant for **{place}**! "
-                      "Ask me about rain, flooding, temperature, wind, snow, ski conditions, UV, or evacuation safety.")
+                      "Ask me about rain, flooding, temperature, wind, snow, skiing, hiking, BBQ, "
+                      "driving, fishing, gardening, running, events, or what to wear!")
 
     return jsonify({
         'question': question,
