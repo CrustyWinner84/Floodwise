@@ -2368,3 +2368,282 @@ def api_reword():
 @app.route('/flood-cam')
 def page_flood_cam():
     return render_template('flood_cam.html')
+
+
+@app.route('/credits')
+def page_credits():
+    return render_template('credits.html')
+
+
+@app.route('/timeline')
+def page_timeline():
+    return render_template('timeline.html')
+
+
+@app.route('/ar-flood')
+def page_ar_flood():
+    return render_template('ar_flood.html')
+
+
+# ---------------------------------------------------------------------------
+# Hyperlocal Flood Prediction API
+# ---------------------------------------------------------------------------
+
+@app.route('/api/hyperlocal')
+def api_hyperlocal():
+    """9-point micro-elevation grid around a location with per-cell flood risk.
+    Returns a 3×3 grid (center = target) with elevation, slope, drainage score,
+    soil saturation proxy, and per-cell risk level.
+    """
+    lat = request.args.get('lat', type=float)
+    lon = request.args.get('lon', type=float)
+    location = request.args.get('location', '').strip()
+
+    if lat is None or lon is None:
+        if not location:
+            return jsonify({'error': 'Provide "location" or "lat"+"lon"'}), 400
+        geo = geocode(location)
+        if not geo:
+            return jsonify({'error': 'location not found'}), 404
+        lat, lon, _, _ = geo
+
+    step = 0.002  # ~200 m spacing
+    grid_pts = []
+    for r in range(-1, 2):
+        for c in range(-1, 2):
+            grid_pts.append({'lat': lat + r * step, 'lon': lon + c * step, 'row': r + 1, 'col': c + 1})
+
+    # Batch elevation lookup
+    lats_str = ','.join(f'{p["lat"]:.5f}' for p in grid_pts)
+    lons_str = ','.join(f'{p["lon"]:.5f}' for p in grid_pts)
+    elevations = [None] * len(grid_pts)
+    try:
+        resp = requests.get(
+            'https://api.open-meteo.com/v1/elevation',
+            params={'latitude': lats_str, 'longitude': lons_str},
+            timeout=8,
+        )
+        resp.raise_for_status()
+        elevations = resp.json().get('elevation', [None] * len(grid_pts))
+    except Exception:
+        logger.debug('Hyperlocal elevation fetch failed')
+
+    # 7-day cumulative precipitation for soil saturation proxy
+    cumulative_precip = 0.0
+    try:
+        today_str = datetime.utcnow().strftime('%Y-%m-%d')
+        week_ago = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d')
+        w_resp = requests.get('https://api.open-meteo.com/v1/forecast', params={
+            'latitude': lat, 'longitude': lon,
+            'daily': 'precipitation_sum',
+            'start_date': week_ago, 'end_date': today_str,
+            'timezone': 'auto',
+        }, timeout=8)
+        w_resp.raise_for_status()
+        precips = w_resp.json().get('daily', {}).get('precipitation_sum', [])
+        cumulative_precip = sum(float(v) for v in precips if v is not None)
+    except Exception:
+        logger.debug('Hyperlocal precip fetch failed')
+
+    # Soil saturation proxy: 0–1 based on 7-day cumulative (>80mm → saturated)
+    soil_saturation = min(1.0, cumulative_precip / 80.0)
+
+    # Calculate per-cell metrics
+    center_elev = elevations[4] if len(elevations) > 4 and elevations[4] is not None else 0
+    cells = []
+    for i, pt in enumerate(grid_pts):
+        elev = elevations[i] if i < len(elevations) and elevations[i] is not None else center_elev
+        # Slope: difference from center, normalized
+        slope = (elev - center_elev) / (step * 111000)  # rise / run in meters
+        # Drainage capacity: higher slope = better drainage (0–1)
+        drainage = min(1.0, abs(slope) * 50)
+        # Cell risk: low elevation + high saturation + poor drainage = high risk
+        elev_factor = max(0, 1.0 - elev / 100.0) * 30  # max 30 pts
+        sat_factor = soil_saturation * 25  # max 25 pts
+        drain_factor = (1.0 - drainage) * 20  # max 20 pts
+        # Below center = water flows here
+        if elev < center_elev:
+            low_factor = min(15, (center_elev - elev) * 2)
+        else:
+            low_factor = 0
+        cell_risk = min(100, elev_factor + sat_factor + drain_factor + low_factor)
+        cells.append({
+            'row': pt['row'], 'col': pt['col'],
+            'lat': round(pt['lat'], 5), 'lon': round(pt['lon'], 5),
+            'elevation_m': round(elev, 1) if elev is not None else None,
+            'slope': round(slope, 5),
+            'drainage_capacity': round(drainage, 2),
+            'cell_risk_score': round(cell_risk, 1),
+            'cell_risk_level': 'high' if cell_risk >= 60 else ('moderate' if cell_risk >= 30 else 'low'),
+            'is_center': i == 4,
+        })
+
+    return jsonify({
+        'lat': lat, 'lon': lon,
+        'grid_spacing_m': round(step * 111000),
+        'soil_saturation_proxy': round(soil_saturation, 2),
+        'cumulative_7day_precip_mm': round(cumulative_precip, 1),
+        'grid': cells,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Alert System
+# ---------------------------------------------------------------------------
+
+_ALERT_DB = os.path.join(os.environ.get('HOME', '/tmp'), 'floodwise_alerts.db')
+
+
+def _alert_db():
+    conn = _sqlite3.connect(_ALERT_DB)
+    conn.row_factory = _sqlite3.Row
+    return conn
+
+
+def _init_alert_db():
+    with _alert_db() as db:
+        db.execute('''
+            CREATE TABLE IF NOT EXISTS alert_subscriptions (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                location     TEXT    NOT NULL,
+                lat          REAL,
+                lon          REAL,
+                threshold    INTEGER DEFAULT 50,
+                created_at   TEXT    DEFAULT (datetime("now")),
+                last_checked TEXT    DEFAULT "",
+                last_score   INTEGER DEFAULT 0,
+                active       INTEGER DEFAULT 1
+            )
+        ''')
+        db.commit()
+
+
+try:
+    _init_alert_db()
+except Exception as _e:
+    logger.warning('Could not init alert DB: %s', _e)
+
+
+@app.route('/api/alert-subscribe', methods=['POST'])
+def api_alert_subscribe():
+    """Subscribe to flood alerts for a location.
+    Body: {location, threshold (optional, default 50)}
+    """
+    data = request.get_json(silent=True) or {}
+    location = (data.get('location') or '').strip()
+    if not location:
+        return jsonify({'error': 'location is required'}), 400
+    threshold = max(10, min(100, int(data.get('threshold', 50))))
+
+    # Geocode to get lat/lon
+    geo = geocode(location)
+    lat, lon = (geo[0], geo[1]) if geo else (None, None)
+
+    try:
+        with _alert_db() as db:
+            cur = db.execute(
+                'INSERT INTO alert_subscriptions (location, lat, lon, threshold) VALUES (?,?,?,?)',
+                (location, lat, lon, threshold)
+            )
+            db.commit()
+            return jsonify({'id': cur.lastrowid, 'location': location, 'threshold': threshold}), 201
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alert-check', methods=['GET'])
+def api_alert_check():
+    """Check flood risk for all active subscriptions (or a specific one by ?id=).
+    Returns list of alerts that exceed their threshold.
+    """
+    sub_id = request.args.get('id', type=int)
+    try:
+        with _alert_db() as db:
+            if sub_id:
+                rows = db.execute('SELECT * FROM alert_subscriptions WHERE id=? AND active=1', (sub_id,)).fetchall()
+            else:
+                rows = db.execute('SELECT * FROM alert_subscriptions WHERE active=1 ORDER BY created_at DESC LIMIT 20').fetchall()
+
+        alerts = []
+        for row in rows:
+            r = dict(row)
+            lat, lon = r.get('lat'), r.get('lon')
+            if lat is None or lon is None:
+                geo = geocode(r['location'])
+                if geo:
+                    lat, lon = geo[0], geo[1]
+                else:
+                    continue
+
+            # Quick risk check using current forecast
+            try:
+                resp = requests.get('https://api.open-meteo.com/v1/forecast', params={
+                    'latitude': lat, 'longitude': lon,
+                    'daily': 'precipitation_sum',
+                    'forecast_days': 1,
+                    'timezone': 'auto',
+                }, timeout=8)
+                resp.raise_for_status()
+                today_precip = (resp.json().get('daily', {}).get('precipitation_sum', [0]) or [0])[0] or 0
+            except Exception:
+                today_precip = 0
+
+            # Simple risk estimate
+            score = 0
+            if today_precip > 50:
+                score += 30
+            elif today_precip > 20:
+                score += 20
+            elif today_precip > 10:
+                score += 12
+            elif today_precip > 5:
+                score += 7
+            elev = get_elevation(lat, lon)
+            if elev is not None:
+                if elev < 5:
+                    score += 20
+                elif elev < 15:
+                    score += 14
+                elif elev < 30:
+                    score += 8
+
+            triggered = score >= r['threshold']
+
+            # Update last check
+            try:
+                with _alert_db() as db:
+                    db.execute('UPDATE alert_subscriptions SET last_checked=datetime("now"), last_score=? WHERE id=?',
+                               (score, r['id']))
+                    db.commit()
+            except Exception:
+                pass
+
+            alerts.append({
+                'id': r['id'],
+                'location': r['location'],
+                'threshold': r['threshold'],
+                'current_score': score,
+                'today_precip_mm': round(today_precip, 1),
+                'triggered': triggered,
+                'message': f'⚠️ Flood risk {score}/100 exceeds your threshold of {r["threshold"]} for {r["location"]}!' if triggered else f'✅ Flood risk {score}/100 is below your threshold of {r["threshold"]} for {r["location"]}.',
+            })
+
+        return jsonify({'alerts': alerts})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/alert-unsubscribe', methods=['POST'])
+def api_alert_unsubscribe():
+    """Deactivate an alert subscription."""
+    data = request.get_json(silent=True) or {}
+    sub_id = data.get('id')
+    if not sub_id:
+        return jsonify({'error': 'id is required'}), 400
+    try:
+        with _alert_db() as db:
+            db.execute('UPDATE alert_subscriptions SET active=0 WHERE id=?', (sub_id,))
+            db.commit()
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500

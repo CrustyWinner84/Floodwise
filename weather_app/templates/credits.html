@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Credits — FloodWise</title>
+  <link href="https://fonts.googleapis.com/css2?family=McLaren&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{
+      min-height:100%;font-family:"McLaren",Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;color:#e2e8f0;
+      background:
+        radial-gradient(ellipse at 15% 50%,rgba(0,200,180,.08) 0%,transparent 55%),
+        radial-gradient(ellipse at 85% 20%,rgba(80,50,220,.11) 0%,transparent 45%),
+        radial-gradient(ellipse at 60% 85%,rgba(0,120,230,.09) 0%,transparent 45%),
+        linear-gradient(160deg,#070d2a 0%,#04091c 40%,#0b1735 70%,#030c1a 100%);
+    }
+    body{max-width:980px;margin:0 auto;padding:2rem 1.25rem 5rem}
+
+    /* Nav */
+    .top-nav{display:flex;align-items:center;justify-content:center;gap:.6rem;margin-bottom:2.2rem;flex-wrap:wrap}
+    .top-nav a{text-decoration:none;color:#7cb8f5;font-size:.85rem;padding:.35rem .9rem;border-radius:20px;border:1px solid rgba(100,160,255,.2);transition:background .2s,color .2s}
+    .top-nav a:hover,.top-nav a.active{background:rgba(100,160,255,.15);color:#b8d9ff}
+
+    /* Header */
+    .page-header{text-align:center;margin-bottom:2.5rem}
+    .page-header h1{font-size:2rem;color:#b8d9ff;letter-spacing:.5px}
+    .page-header p{color:#7cb8f5;font-size:.95rem;margin-top:.4rem;max-width:620px;margin-inline:auto}
+
+    /* Card */
+    .card{background:rgba(5,15,50,.6);border:1px solid rgba(100,160,255,.18);border-radius:14px;padding:1.5rem 1.75rem;backdrop-filter:blur(8px);margin-bottom:1.6rem}
+    .card h2{font-size:1.05rem;color:#b8d9ff;margin-bottom:1rem;display:flex;align-items:center;gap:.45rem}
+
+    /* Credit grid */
+    .credit-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:.9rem}
+    .credit-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:11px;padding:1rem 1.15rem;display:flex;flex-direction:column;gap:.35rem;transition:border-color .2s}
+    .credit-item:hover{border-color:rgba(100,160,255,.35)}
+    .credit-name{font-size:.92rem;color:#b8d9ff;font-weight:600}
+    .credit-name a{color:#38bdf8;text-decoration:none}
+    .credit-name a:hover{text-decoration:underline}
+    .credit-role{font-size:.75rem;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
+    .credit-desc{font-size:.82rem;color:#94a3b8;line-height:1.5}
+
+    /* Tech badge */
+    .tech-badges{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.8rem}
+    .tech-badge{display:inline-flex;align-items:center;gap:.25rem;font-size:.72rem;padding:.2rem .6rem;border-radius:20px;font-weight:600;letter-spacing:.3px;background:rgba(56,189,248,.12);color:#38bdf8;border:1px solid rgba(56,189,248,.25)}
+
+    /* People section */
+    .people-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:.9rem}
+    .person-card{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:11px;padding:1.1rem 1.2rem;text-align:center}
+    .person-avatar{font-size:2.2rem;margin-bottom:.4rem}
+    .person-name{font-size:.95rem;color:#b8d9ff;font-weight:600}
+    .person-role{font-size:.78rem;color:#7cb8f5;margin-top:.15rem}
+
+    /* Disclaimer */
+    .disclaimer{font-size:.78rem;color:#475569;text-align:center;margin-top:2rem;line-height:1.6}
+    .disclaimer a{color:#38bdf8}
+  </style>
+</head>
+<body>
+
+  <nav class="top-nav">
+    <a href="/">🌊 FloodWise</a>
+    <a href="/experiences">💬 Stories</a>
+    <a href="/flood-cam">🎥 Flood Cam</a>
+    <a href="/timeline">📊 Timeline</a>
+    <a href="/ar-flood">🌊 AR Sim</a>
+    <a href="/credits" class="active">🏆 Credits</a>
+  </nav>
+
+  <header class="page-header">
+    <h1>🏆 Credits &amp; Acknowledgements</h1>
+    <p>FloodWise is built on open data, open-source libraries, and free APIs. Here's everything that makes it work.</p>
+  </header>
+
+  <!-- Developer -->
+  <div class="card">
+    <h2>👨‍💻 Development</h2>
+    <div class="people-grid">
+      <div class="person-card">
+        <div class="person-avatar">👨‍💻</div>
+        <div class="person-name">Karthi Gangavarapu</div>
+        <div class="person-role">Creator &amp; Developer</div>
+      </div>
+      <div class="person-card">
+        <div class="person-avatar">🤖</div>
+        <div class="person-name">GitHub Copilot</div>
+        <div class="person-role">AI Pair Programmer</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Weather & Climate APIs -->
+  <div class="card">
+    <h2>🌦️ Weather &amp; Climate Data</h2>
+    <div class="credit-grid">
+      <div class="credit-item">
+        <div class="credit-role">Primary Weather API</div>
+        <div class="credit-name"><a href="https://open-meteo.com" target="_blank">Open-Meteo</a></div>
+        <div class="credit-desc">Current weather, 16-day forecasts, historical archive (past 92 days via forecast, full archive for older), and elevation data. Free, no API key required.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Geocoding</div>
+        <div class="credit-name"><a href="https://www.bigdatacloud.com" target="_blank">BigDataCloud</a></div>
+        <div class="credit-desc">Free reverse geocoding API used to resolve coordinates to city/state/country display names.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Geocoding (Fallback)</div>
+        <div class="credit-name"><a href="https://nominatim.org" target="_blank">OpenStreetMap Nominatim</a></div>
+        <div class="credit-desc">Open-source geocoding service. Used as a secondary lookup for location name resolution.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Flood & Hydrology -->
+  <div class="card">
+    <h2>🌊 Flood &amp; Hydrology Data</h2>
+    <div class="credit-grid">
+      <div class="credit-item">
+        <div class="credit-role">Federal Flood History</div>
+        <div class="credit-name"><a href="https://www.fema.gov/api/open" target="_blank">FEMA OpenFEMA API</a></div>
+        <div class="credit-desc">Historical disaster declarations for flood events by state. Falls back to a static per-state risk table when Akamai blocks cloud IPs.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Real-Time Stream Gauges</div>
+        <div class="credit-name"><a href="https://waterservices.usgs.gov" target="_blank">USGS Water Services</a></div>
+        <div class="credit-desc">Live streamflow and gauge height data from USGS monitoring stations across the US. Free, no API key.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Water Body Proximity</div>
+        <div class="credit-name"><a href="https://overpass-api.de" target="_blank">OSM Overpass API</a></div>
+        <div class="credit-desc">Queries OpenStreetMap for rivers, streams, canals, and water bodies within 2.5 km to compute proximity-based flood risk scoring.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Elevation Data</div>
+        <div class="credit-name"><a href="https://open-meteo.com/en/docs/elevation-api" target="_blank">Open-Meteo Elevation API</a></div>
+        <div class="credit-desc">Fast elevation lookups used for terrain-based flood risk factors. Also supports Open-Elevation and OpenTopography as fallbacks.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Routing Engine</div>
+        <div class="credit-name"><a href="https://project-osrm.org" target="_blank">OSRM (Open Source Routing Machine)</a></div>
+        <div class="credit-desc">Calculates evacuation routes with real road geometry, turn-by-turn directions, distance, and duration estimates.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- AI & Machine Learning -->
+  <div class="card">
+    <h2>🧠 AI &amp; Machine Learning</h2>
+    <div class="credit-grid">
+      <div class="credit-item">
+        <div class="credit-role">Image Classification Runtime</div>
+        <div class="credit-name"><a href="https://www.tensorflow.org/js" target="_blank">TensorFlow.js</a></div>
+        <div class="credit-desc">Runs the flood detection neural network directly in the browser using WebGL acceleration. No server round-trips needed.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Pre-Trained Feature Extractor</div>
+        <div class="credit-name"><a href="https://arxiv.org/abs/1704.04861" target="_blank">MobileNet v2</a></div>
+        <div class="credit-desc">Lightweight convolutional neural network used as the feature backbone for the flood camera's transfer-learning classifier.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Vocabulary Enhancer</div>
+        <div class="credit-name">FloodWise NLP Engine</div>
+        <div class="credit-desc">Custom regex-based vocabulary enhancement system with 60+ word-swap patterns to enrich community story submissions.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Visualization -->
+  <div class="card">
+    <h2>📊 Visualization &amp; Interaction</h2>
+    <div class="credit-grid">
+      <div class="credit-item">
+        <div class="credit-role">Charts &amp; Graphs</div>
+        <div class="credit-name"><a href="https://www.chartjs.org" target="_blank">Chart.js</a></div>
+        <div class="credit-desc">Interactive flood timeline with dual-axis precipitation bars and flood risk trend lines.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">3D Water Simulation</div>
+        <div class="credit-name"><a href="https://threejs.org" target="_blank">Three.js</a></div>
+        <div class="credit-desc">Powers the augmented reality flood simulation with realistic semi-transparent water plane rendering.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">AR Camera Overlay</div>
+        <div class="credit-name"><a href="https://immersiveweb.dev" target="_blank">WebXR Device API</a></div>
+        <div class="credit-desc">Browser-native augmented reality for overlaying simulated flood levels on the user's real-world camera view.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Infrastructure -->
+  <div class="card">
+    <h2>🏗️ Infrastructure &amp; Hosting</h2>
+    <div class="credit-grid">
+      <div class="credit-item">
+        <div class="credit-role">Web Framework</div>
+        <div class="credit-name"><a href="https://flask.palletsprojects.com" target="_blank">Flask</a></div>
+        <div class="credit-desc">Lightweight Python web framework powering all API endpoints and page routing.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">WSGI Server</div>
+        <div class="credit-name"><a href="https://gunicorn.org" target="_blank">Gunicorn</a></div>
+        <div class="credit-desc">Production-grade Python HTTP server used for deploying on Azure App Service.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Cloud Hosting</div>
+        <div class="credit-name"><a href="https://azure.microsoft.com/en-us/products/app-service" target="_blank">Microsoft Azure App Service</a></div>
+        <div class="credit-desc">Canada Central region. Automatic builds via Oryx, git-push deployment, Python 3.11 runtime.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Database</div>
+        <div class="credit-name"><a href="https://sqlite.org" target="_blank">SQLite</a></div>
+        <div class="credit-desc">Embedded database for community stories and alert subscriptions. Zero-config, serverless.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Font</div>
+        <div class="credit-name"><a href="https://fonts.google.com/specimen/McLaren" target="_blank">McLaren (Google Fonts)</a></div>
+        <div class="credit-desc">Friendly rounded typeface used throughout the FloodWise interface.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Technologies used -->
+  <div class="card">
+    <h2>🛠️ Tech Stack</h2>
+    <div class="tech-badges">
+      <span class="tech-badge">Python 3.11</span>
+      <span class="tech-badge">Flask</span>
+      <span class="tech-badge">Gunicorn</span>
+      <span class="tech-badge">SQLite</span>
+      <span class="tech-badge">Jinja2</span>
+      <span class="tech-badge">JavaScript ES6+</span>
+      <span class="tech-badge">TensorFlow.js</span>
+      <span class="tech-badge">MobileNet v2</span>
+      <span class="tech-badge">Chart.js</span>
+      <span class="tech-badge">Three.js</span>
+      <span class="tech-badge">WebXR</span>
+      <span class="tech-badge">HTML5 Canvas</span>
+      <span class="tech-badge">CSS Grid / Flexbox</span>
+      <span class="tech-badge">Fetch API</span>
+      <span class="tech-badge">Notification API</span>
+      <span class="tech-badge">Service Worker</span>
+      <span class="tech-badge">Azure App Service</span>
+      <span class="tech-badge">Git</span>
+    </div>
+  </div>
+
+  <!-- Open Data -->
+  <div class="card">
+    <h2>📂 Open Data Sources</h2>
+    <div class="credit-grid">
+      <div class="credit-item">
+        <div class="credit-role">Map Data</div>
+        <div class="credit-name"><a href="https://www.openstreetmap.org" target="_blank">OpenStreetMap</a></div>
+        <div class="credit-desc">© OpenStreetMap contributors. Water body, river, stream, and canal data used for proximity scoring. Licensed under ODbL.</div>
+      </div>
+      <div class="credit-item">
+        <div class="credit-role">Terrain Model</div>
+        <div class="credit-name"><a href="https://www.usgs.gov/centers/eros/science/usgs-eros-archive-digital-elevation-shuttle-radar-topography-mission-srtm-1" target="_blank">SRTM (NASA/USGS)</a></div>
+        <div class="credit-desc">Shuttle Radar Topography Mission data underpins elevation lookups via Open-Meteo and Earth Engine.</div>
+      </div>
+    </div>
+  </div>
+
+  <p class="disclaimer">
+    FloodWise is an educational and informational tool. It is <strong>not</strong> a substitute for official emergency alerts
+    from <a href="https://www.weather.gov" target="_blank">NWS</a>, <a href="https://www.fema.gov" target="_blank">FEMA</a>,
+    or local emergency management agencies. Always follow official guidance during flood events.<br><br>
+    Built with 💙 for community flood awareness.
+  </p>
+
+</body>
+</html>

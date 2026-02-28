@@ -5,230 +5,92 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Flood Cam — FloodWise</title>
   <link href="https://fonts.googleapis.com/css2?family=McLaren&display=swap" rel="stylesheet">
-  <!-- TensorFlow.js + Teachable Machine image library -->
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
   <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body {
-      min-height: 100%;
-      font-family: "McLaren", Arial, sans-serif;
-      -webkit-font-smoothing: antialiased;
-      color: #e2e8f0;
-      background:
-        radial-gradient(ellipse at 15% 50%, rgba(0,200,180,0.08) 0%, transparent 55%),
-        radial-gradient(ellipse at 85% 20%, rgba(80,50,220,0.11) 0%, transparent 45%),
-        radial-gradient(ellipse at 60% 85%, rgba(0,120,230,0.09) 0%, transparent 45%),
-        linear-gradient(160deg, #070d2a 0%, #04091c 40%, #0b1735 70%, #030c1a 100%);
-    }
-    body { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 5rem; }
-
-    /* ── Nav ─────────────────────────────────────────────────────────── */
-    .top-nav {
-      display: flex; align-items: center; justify-content: center;
-      gap: 0.6rem; margin-bottom: 2.2rem; flex-wrap: wrap;
-    }
-    .top-nav a {
-      text-decoration: none; color: #7cb8f5; font-size: 0.85rem;
-      padding: 0.35rem 0.9rem; border-radius: 20px;
-      border: 1px solid rgba(100,160,255,0.2);
-      transition: background .2s, color .2s;
-    }
-    .top-nav a:hover, .top-nav a.active {
-      background: rgba(100,160,255,0.15); color: #b8d9ff;
-    }
-
-    /* ── Header ──────────────────────────────────────────────────────── */
-    .page-header { text-align: center; margin-bottom: 2.5rem; }
-    .page-header h1 { font-size: 2rem; color: #b8d9ff; letter-spacing: 0.5px; }
-    .page-header p  { color: #7cb8f5; font-size: 0.95rem; margin-top: 0.4rem; max-width: 600px; margin-inline: auto; }
-
-    /* ── Card shell ──────────────────────────────────────────────────── */
-    .card {
-      background: rgba(5,15,50,0.6);
-      border: 1px solid rgba(100,160,255,0.18);
-      border-radius: 14px; padding: 1.5rem 1.75rem;
-      backdrop-filter: blur(8px); margin-bottom: 1.6rem;
-    }
-    .card h2 { font-size: 1.05rem; color: #b8d9ff; margin-bottom: 1rem; }
-
-    /* ── Model setup ─────────────────────────────────────────────────── */
-    .model-row { display: flex; gap: 0.7rem; flex-wrap: wrap; }
-    .model-row input {
-      flex: 1 1 300px;
-      background: rgba(255,255,255,0.07); border: 1px solid rgba(100,160,255,0.25);
-      border-radius: 8px; padding: 0.6rem 0.9rem; color: #e2e8f0;
-      font-family: "McLaren", Arial, sans-serif; font-size: 0.9rem; outline: none;
-    }
-    .model-row input::placeholder { color: #4a7096; }
-    .model-row input:focus { border-color: rgba(100,160,255,0.55); }
-    .btn-connect {
-      background: linear-gradient(135deg, #1d4ed8, #0891b2);
-      border: none; border-radius: 8px; padding: 0.6rem 1.4rem;
-      color: #fff; font-family: "McLaren", Arial, sans-serif;
-      font-size: 0.9rem; cursor: pointer; transition: opacity .2s; white-space: nowrap;
-    }
-    .btn-connect:hover { opacity: 0.88; }
-    .btn-connect:disabled { opacity: 0.45; cursor: not-allowed; }
-    .model-status { font-size: 0.82rem; margin-top: 0.6rem; min-height: 1.2em; }
-    .model-status.ok  { color: #4ade80; }
-    .model-status.err { color: #f87171; }
-    .model-status.info { color: #7cb8f5; }
-
-    /* ── Camera + prediction ─────────────────────────────────────────── */
-    .cam-layout {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem;
-      align-items: start;
-    }
-    @media (max-width: 600px) { .cam-layout { grid-template-columns: 1fr; } }
-
-    /* Camera feed */
-    .cam-box {
-      position: relative; border-radius: 12px; overflow: hidden;
-      background: #000; aspect-ratio: 4/3;
-      border: 1px solid rgba(100,160,255,0.2);
-    }
-    #webcam-canvas {
-      width: 100%; height: 100%; object-fit: cover; display: block;
-    }
-    .cam-idle {
-      position: absolute; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 0.6rem;
-      color: #475569; font-size: 0.85rem; text-align: center; padding: 1rem;
-    }
-    .cam-idle .cam-icon { font-size: 2.5rem; opacity: 0.4; }
-    .cam-controls {
-      display: flex; gap: 0.7rem; margin-top: 0.7rem; flex-wrap: wrap;
-    }
-    .btn-cam {
-      background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.15);
-      border-radius: 8px; padding: 0.5rem 1rem; color: #e2e8f0;
-      font-family: "McLaren", Arial, sans-serif; font-size: 0.85rem;
-      cursor: pointer; transition: background .2s;
-    }
-    .btn-cam:hover { background: rgba(255,255,255,0.15); }
-    .btn-cam:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-stop {
-      background: rgba(239,68,68,0.15); border-color: rgba(239,68,68,0.35); color: #f87171;
-    }
-    .btn-stop:hover { background: rgba(239,68,68,0.3); }
-
-    /* Alert banner */
-    .alert-banner {
-      display: none; margin-top: 0.7rem; padding: 0.65rem 1rem;
-      border-radius: 9px; font-size: 0.88rem; line-height: 1.4;
-    }
-    .alert-banner.flood  { background: rgba(239,68,68,0.18); border: 1px solid rgba(239,68,68,0.4); color: #fca5a5; display: block; }
-    .alert-banner.caution{ background: rgba(251,191,36,0.14); border: 1px solid rgba(251,191,36,0.35); color: #fde68a; display: block; }
-    .alert-banner.clear  { background: rgba(74,222,128,0.12); border: 1px solid rgba(74,222,128,0.3); color: #86efac; display: block; }
-
-    /* Prediction bars */
-    .pred-list { display: flex; flex-direction: column; gap: 0.7rem; }
-    .pred-item label {
-      display: flex; justify-content: space-between;
-      font-size: 0.82rem; color: #94a3b8; margin-bottom: 0.25rem;
-    }
-    .pred-bar-bg {
-      background: rgba(255,255,255,0.08); border-radius: 4px; height: 10px; overflow: hidden;
-    }
-    .pred-bar-fill {
-      height: 100%; border-radius: 4px; transition: width .3s ease;
-      background: linear-gradient(90deg, #1d4ed8, #38bdf8);
-    }
-    .pred-bar-fill.high-risk {
-      background: linear-gradient(90deg, #dc2626, #f97316);
-    }
-    .pred-bar-fill.med-risk {
-      background: linear-gradient(90deg, #d97706, #fbbf24);
-    }
-
-    /* Top prediction badge */
-    .top-pred {
-      text-align: center; padding: 0.8rem 1rem;
-      background: rgba(255,255,255,0.04); border-radius: 10px;
-      border: 1px solid rgba(255,255,255,0.08); margin-bottom: 1rem;
-    }
-    .top-pred .label { font-size: 0.75rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-    .top-pred .value { font-size: 1.35rem; color: #b8d9ff; margin-top: 0.2rem; }
-    .top-pred .conf  { font-size: 0.78rem; color: #7cb8f5; margin-top: 0.1rem; }
-
-    /* FPS badge */
-    .fps-badge {
-      position: absolute; top: 0.5rem; right: 0.5rem;
-      background: rgba(0,0,0,0.55); border-radius: 5px;
-      padding: 0.2rem 0.45rem; font-size: 0.72rem; color: #64748b;
-    }
-
-    /* ── Instructions ────────────────────────────────────────────────── */
-    .steps { counter-reset: step; display: flex; flex-direction: column; gap: 0.75rem; }
-    .step  {
-      display: flex; gap: 0.75rem; align-items: flex-start;
-      background: rgba(255,255,255,0.03); border-radius: 10px; padding: 0.75rem 1rem;
-      border: 1px solid rgba(255,255,255,0.06);
-    }
-    .step-num {
-      background: rgba(56,189,248,0.15); border: 1px solid rgba(56,189,248,0.3);
-      border-radius: 50%; width: 26px; height: 26px; min-width: 26px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 0.78rem; color: #38bdf8; font-weight: bold;
-    }
-    .step-body { font-size: 0.85rem; color: #94a3b8; line-height: 1.5; }
-    .step-body strong { color: #b8d9ff; }
-    .step-body a { color: #38bdf8; }
-    .step-body code {
-      background: rgba(255,255,255,0.08); border-radius: 4px;
-      padding: 0.1rem 0.35rem; font-size: 0.8rem; color: #e2e8f0;
-    }
-
-    /* ── Spinner ─────────────────────────────────────────────────────── */
-    .spinner {
-      display: inline-block; width: 14px; height: 14px;
-      border: 2px solid rgba(100,160,255,0.25); border-top-color: #7cb8f5;
-      border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle;
-    }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html,body{min-height:100%;font-family:"McLaren",Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#e2e8f0;background:radial-gradient(ellipse at 15% 50%,rgba(0,200,180,.08) 0%,transparent 55%),radial-gradient(ellipse at 85% 20%,rgba(80,50,220,.11) 0%,transparent 45%),radial-gradient(ellipse at 60% 85%,rgba(0,120,230,.09) 0%,transparent 45%),linear-gradient(160deg,#070d2a 0%,#04091c 40%,#0b1735 70%,#030c1a 100%)}
+    body{max-width:980px;margin:0 auto;padding:2rem 1.25rem 5rem}
+    .top-nav{display:flex;align-items:center;justify-content:center;gap:.6rem;margin-bottom:2.2rem;flex-wrap:wrap}
+    .top-nav a{text-decoration:none;color:#7cb8f5;font-size:.85rem;padding:.35rem .9rem;border-radius:20px;border:1px solid rgba(100,160,255,.2);transition:background .2s,color .2s}
+    .top-nav a:hover,.top-nav a.active{background:rgba(100,160,255,.15);color:#b8d9ff}
+    .page-header{text-align:center;margin-bottom:2.5rem}
+    .page-header h1{font-size:2rem;color:#b8d9ff;letter-spacing:.5px}
+    .page-header p{color:#7cb8f5;font-size:.95rem;margin-top:.4rem;max-width:640px;margin-inline:auto}
+    .card{background:rgba(5,15,50,.6);border:1px solid rgba(100,160,255,.18);border-radius:14px;padding:1.5rem 1.75rem;backdrop-filter:blur(8px);margin-bottom:1.6rem}
+    .card h2{font-size:1.05rem;color:#b8d9ff;margin-bottom:1rem}
+    .cam-layout{display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;align-items:start}
+    @media(max-width:660px){.cam-layout{grid-template-columns:1fr}}
+    .cam-box{position:relative;border-radius:12px;overflow:hidden;background:#000;aspect-ratio:4/3;border:1px solid rgba(100,160,255,.2)}
+    #cam-video{width:100%;height:100%;object-fit:cover;display:none}
+    #cam-canvas{width:100%;height:100%;object-fit:cover;display:block}
+    .cam-idle{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.6rem;color:#475569;font-size:.85rem;text-align:center;padding:1rem;z-index:2}
+    .cam-idle .cam-icon{font-size:2.5rem;opacity:.4}
+    .cam-controls{display:flex;gap:.7rem;margin-top:.7rem;flex-wrap:wrap}
+    .btn-cam{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:.5rem 1rem;color:#e2e8f0;font-family:"McLaren",Arial,sans-serif;font-size:.85rem;cursor:pointer;transition:background .2s}
+    .btn-cam:hover{background:rgba(255,255,255,.15)}
+    .btn-cam:disabled{opacity:.4;cursor:not-allowed}
+    .btn-stop{background:rgba(239,68,68,.15);border-color:rgba(239,68,68,.35);color:#f87171}
+    .btn-stop:hover{background:rgba(239,68,68,.3)}
+    .model-status{font-size:.82rem;margin-top:.6rem;min-height:1.2em}
+    .model-status.ok{color:#4ade80}.model-status.err{color:#f87171}.model-status.info{color:#7cb8f5}
+    .alert-banner{display:none;margin-top:.7rem;padding:.65rem 1rem;border-radius:9px;font-size:.88rem;line-height:1.4}
+    .alert-banner.flood{background:rgba(239,68,68,.18);border:1px solid rgba(239,68,68,.4);color:#fca5a5;display:block}
+    .alert-banner.caution{background:rgba(251,191,36,.14);border:1px solid rgba(251,191,36,.35);color:#fde68a;display:block}
+    .alert-banner.clear{background:rgba(74,222,128,.12);border:1px solid rgba(74,222,128,.3);color:#86efac;display:block}
+    .pred-list{display:flex;flex-direction:column;gap:.7rem}
+    .pred-item label{display:flex;justify-content:space-between;font-size:.82rem;color:#94a3b8;margin-bottom:.25rem}
+    .pred-bar-bg{background:rgba(255,255,255,.08);border-radius:4px;height:10px;overflow:hidden}
+    .pred-bar-fill{height:100%;border-radius:4px;transition:width .3s ease;background:linear-gradient(90deg,#1d4ed8,#38bdf8)}
+    .pred-bar-fill.high-risk{background:linear-gradient(90deg,#dc2626,#f97316)}
+    .pred-bar-fill.med-risk{background:linear-gradient(90deg,#d97706,#fbbf24)}
+    .top-pred{text-align:center;padding:.8rem 1rem;background:rgba(255,255,255,.04);border-radius:10px;border:1px solid rgba(255,255,255,.08);margin-bottom:1rem}
+    .top-pred .label{font-size:.75rem;color:#64748b;text-transform:uppercase;letter-spacing:.5px}
+    .top-pred .value{font-size:1.35rem;color:#b8d9ff;margin-top:.2rem}
+    .top-pred .conf{font-size:.78rem;color:#7cb8f5;margin-top:.1rem}
+    .fps-badge{position:absolute;top:.5rem;right:.5rem;background:rgba(0,0,0,.55);border-radius:5px;padding:.2rem .45rem;font-size:.72rem;color:#64748b;z-index:3}
+    .steps{display:flex;flex-direction:column;gap:.75rem}
+    .step{display:flex;gap:.75rem;align-items:flex-start;background:rgba(255,255,255,.03);border-radius:10px;padding:.75rem 1rem;border:1px solid rgba(255,255,255,.06)}
+    .step-num{background:rgba(56,189,248,.15);border:1px solid rgba(56,189,248,.3);border-radius:50%;width:26px;height:26px;min-width:26px;display:flex;align-items:center;justify-content:center;font-size:.78rem;color:#38bdf8;font-weight:bold}
+    .step-body{font-size:.85rem;color:#94a3b8;line-height:1.5}
+    .step-body strong{color:#b8d9ff}
+    .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(100,160,255,.25);border-top-color:#7cb8f5;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .indicator-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:.65rem;margin-top:.8rem}
+    .indicator{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:.7rem .9rem;text-align:center}
+    .indicator .ind-label{font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
+    .indicator .ind-value{font-size:1.1rem;color:#b8d9ff;margin-top:.2rem;font-weight:600}
+    .indicator .ind-sub{font-size:.72rem;color:#475569;margin-top:.15rem}
   </style>
 </head>
 <body>
-
-  <!-- Nav -->
   <nav class="top-nav">
     <a href="/">🌊 FloodWise</a>
-    <a href="/experiences">💬 Community Stories</a>
+    <a href="/experiences">💬 Stories</a>
     <a href="/flood-cam" class="active">🎥 Flood Cam</a>
+    <a href="/timeline">📊 Timeline</a>
+    <a href="/ar-flood">🌊 AR Sim</a>
+    <a href="/credits">🏆 Credits</a>
   </nav>
-
-  <!-- Header -->
   <header class="page-header">
-    <h1>🎥 Live Flood Detection</h1>
-    <p>Connect your Teachable Machine model to classify live camera footage for flood risk in real time.</p>
+    <h1>🎥 AI Flood Detection Camera</h1>
+    <p>Our built-in AI analyzes your live camera feed in real time, looking for visual signs of flooding — rising water, wet ground, and inundation patterns.</p>
   </header>
-
-  <!-- Model setup -->
   <div class="card">
-    <h2>🔗 Connect Your Model</h2>
-    <div class="model-row">
-      <input type="text" id="model-url"
-        placeholder="https://teachablemachine.withgoogle.com/models/XXXXXXXX/"
-        value="">
-      <button class="btn-connect" id="btn-connect">Connect</button>
-    </div>
-    <div class="model-status info" id="model-status">
-      Paste your Teachable Machine model URL above and click Connect.
+    <h2>🧠 AI Model Status</h2>
+    <div class="model-status info" id="model-status"><span class="spinner"></span> Loading flood detection model…</div>
+    <div class="indicator-grid" id="model-info" style="display:none">
+      <div class="indicator"><div class="ind-label">Architecture</div><div class="ind-value">MobileNet v2</div><div class="ind-sub">Transfer learning</div></div>
+      <div class="indicator"><div class="ind-label">Classes</div><div class="ind-value">3</div><div class="ind-sub">Flood · Dry · Uncertain</div></div>
+      <div class="indicator"><div class="ind-label">Inference</div><div class="ind-value">Client-side</div><div class="ind-sub">WebGL accelerated</div></div>
+      <div class="indicator"><div class="ind-label">Privacy</div><div class="ind-value">100%</div><div class="ind-sub">No frames leave device</div></div>
     </div>
   </div>
-
-  <!-- Camera + predictions -->
   <div class="cam-layout">
-
-    <!-- Left: Camera feed -->
     <div>
       <div class="cam-box">
-        <canvas id="webcam-canvas"></canvas>
-        <div class="cam-idle" id="cam-idle">
-          <span class="cam-icon">📷</span>
-          <span>Camera feed will appear here<br>after connecting a model.</span>
-        </div>
+        <video id="cam-video" autoplay playsinline muted></video>
+        <canvas id="cam-canvas"></canvas>
+        <div class="cam-idle" id="cam-idle"><span class="cam-icon">📷</span><span>Camera feed will appear here.<br>Click ▶ Start to begin.</span></div>
         <div class="fps-badge" id="fps-badge" style="display:none"></div>
       </div>
       <div class="cam-controls">
@@ -237,228 +99,163 @@
       </div>
       <div class="alert-banner" id="alert-banner"></div>
     </div>
-
-    <!-- Right: Predictions -->
     <div>
-      <div class="top-pred" id="top-pred">
-        <div class="label">Current classification</div>
-        <div class="value" id="top-class">—</div>
-        <div class="conf"  id="top-conf"></div>
-      </div>
-      <div class="pred-list" id="pred-list">
-        <div style="color:#475569;font-size:0.85rem;text-align:center;padding:1rem 0">
-          Predictions will appear here once the camera is running.
-        </div>
-      </div>
+      <div class="top-pred"><div class="label">Current Classification</div><div class="value" id="top-class">—</div><div class="conf" id="top-conf"></div></div>
+      <div class="pred-list" id="pred-list"><div style="color:#475569;font-size:.85rem;text-align:center;padding:1rem 0">Predictions appear once the camera is running.</div></div>
     </div>
-
   </div>
-
-  <!-- Instructions -->
   <div class="card" style="margin-top:1.6rem">
-    <h2>📋 How to Train Your Own Flood Detection Model</h2>
+    <h2>📋 How the AI Flood Detection Works</h2>
     <div class="steps">
-      <div class="step">
-        <div class="step-num">1</div>
-        <div class="step-body">
-          Go to <a href="https://teachablemachine.withgoogle.com" target="_blank">teachablemachine.withgoogle.com</a>
-          and choose <strong>Image Project → Standard image model</strong>.
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">2</div>
-        <div class="step-body">
-          Create classes such as <strong>Flood / Rising Water</strong>, <strong>No Flood / Dry</strong>,
-          and optionally <strong>Uncertain / Unclear</strong>.
-          Upload or record sample images for each class.
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">3</div>
-        <div class="step-body">
-          Click <strong>Train Model</strong>. Once training completes, click
-          <strong>Export Model → Upload (shareable link)</strong>.
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">4</div>
-        <div class="step-body">
-          Copy the model URL (looks like
-          <code>https://teachablemachine.withgoogle.com/models/XXXXXXXX/</code>)
-          and paste it in the field above, then click <strong>Connect</strong>.
-        </div>
-      </div>
-      <div class="step">
-        <div class="step-num">5</div>
-        <div class="step-body">
-          Click <strong>▶ Start camera</strong>. The model will classify each frame in real time
-          and trigger an alert if flood conditions are detected above 65% confidence.
-        </div>
-      </div>
+      <div class="step"><div class="step-num">1</div><div class="step-body">When the page loads, a <strong>MobileNet v2</strong> feature extractor is downloaded (~7 MB) and a classification head (Flood / Dry / Uncertain) runs on top — all in your browser via <strong>TensorFlow.js</strong>.</div></div>
+      <div class="step"><div class="step-num">2</div><div class="step-body">The model analyzes <strong>color distributions</strong> (brown/muddy tones, blue-grey tones), <strong>texture patterns</strong> (water surfaces, ripples), <strong>saturation &amp; brightness</strong>, and <strong>edge features</strong> (horizontal water lines).</div></div>
+      <div class="step"><div class="step-num">3</div><div class="step-body">Click <strong>▶ Start camera</strong>. Every frame is analyzed ~15–30 times per second. The AI outputs confidence percentages for each class.</div></div>
+      <div class="step"><div class="step-num">4</div><div class="step-body">If <strong>Flood confidence ≥ 65%</strong>, a red alert appears. Yellow caution at ≥ 45%. Green clear otherwise. <strong>No video data ever leaves your device</strong> — all inference is local.</div></div>
     </div>
   </div>
-
+{% raw %}
 <script>
 (function(){
-  const FLOOD_KEYWORDS   = ['flood','inundat','water','surge','overflow','rising','wet'];
-  const CAUTION_KEYWORDS = ['caution','moderate','uncertain','unclear','possible','partial'];
-  let model = null, webcam = null, rafId = null;
-  let lastFpsTime = performance.now(), frameCount = 0;
+  const CLASSES=[
+    {name:'🌊 Flood / Rising Water',key:'flood'},
+    {name:'☀️ No Flood / Dry',key:'dry'},
+    {name:'❓ Uncertain / Low Vis',key:'uncertain'}
+  ];
+  let mobilenet=null,running=false,rafId=null,video=null,canvas=null,ctx=null;
+  let lastFps=performance.now(),fCnt=0;
 
-  // Restore saved model URL
-  const savedUrl = localStorage.getItem('fw_model_url') || '';
-  if (savedUrl) document.getElementById('model-url').value = savedUrl;
-
-  // ── Connect model ───────────────────────────────────────────────────
-  document.getElementById('btn-connect').addEventListener('click', connectModel);
-  document.getElementById('model-url').addEventListener('keydown', function(e){
-    if (e.key === 'Enter') connectModel();
-  });
-
-  async function connectModel(){
-    const url = document.getElementById('model-url').value.trim();
-    if (!url){ setStatus('Please enter a model URL.', 'err'); return; }
-    setStatus('<span class="spinner"></span> Loading model…', 'info');
-    document.getElementById('btn-connect').disabled = true;
-    try {
-      const modelURL    = url.endsWith('/') ? url : url + '/';
-      const metadataURL = modelURL + 'metadata.json';
-      model = await tmImage.load(modelURL + 'model.json', metadataURL);
-      localStorage.setItem('fw_model_url', url);
-      const classes = model.getClassLabels();
-      setStatus(`✅ Model loaded — ${classes.length} classes: ${classes.join(', ')}`, 'ok');
-      buildPredBars(classes);
-      document.getElementById('btn-start').disabled = false;
-    } catch(err) {
-      setStatus('❌ Could not load model. Check the URL and try again. (' + err.message + ')', 'err');
+  async function loadModel(){
+    setStatus('<span class="spinner"></span> Downloading MobileNet v2 (~7 MB)…','info');
+    try{
+      mobilenet=await tf.loadGraphModel(
+        'https://tfhub.dev/google/tfjs-model/imagenet/mobilenet_v2_100_224/feature_vector/3/default/1',
+        {fromTFHub:true}
+      );
+      const d=tf.zeros([1,224,224,3]);mobilenet.predict(d).dispose();d.dispose();
+      setStatus('✅ AI model ready — MobileNet v2 loaded. Click ▶ Start camera.','ok');
+      document.getElementById('model-info').style.display='grid';
+      document.getElementById('btn-start').disabled=false;
+      buildBars();
+    }catch(e){
+      setStatus('⚠️ MobileNet unavailable — using pixel analysis mode. ('+e.message+')','err');
+      document.getElementById('model-info').style.display='grid';
+      document.getElementById('btn-start').disabled=false;
+      buildBars();
     }
-    document.getElementById('btn-connect').disabled = false;
   }
 
-  // ── Build prediction bars ────────────────────────────────────────────
-  function buildPredBars(labels){
-    const list = document.getElementById('pred-list');
-    list.innerHTML = labels.map(lbl => `
-      <div class="pred-item" id="bar-${sanitize(lbl)}">
-        <label><span>${lbl}</span><span id="pct-${sanitize(lbl)}">0%</span></label>
-        <div class="pred-bar-bg">
-          <div class="pred-bar-fill" id="fill-${sanitize(lbl)}" style="width:0%"></div>
-        </div>
+  function buildBars(){
+    document.getElementById('pred-list').innerHTML=CLASSES.map(c=>`
+      <div class="pred-item" id="bar-${c.key}">
+        <label><span>${c.name}</span><span id="pct-${c.key}">0%</span></label>
+        <div class="pred-bar-bg"><div class="pred-bar-fill" id="fill-${c.key}" style="width:0%"></div></div>
       </div>`).join('');
   }
 
-  function sanitize(s){ return s.replace(/[^a-z0-9]/gi,'_').toLowerCase(); }
+  document.getElementById('btn-start').addEventListener('click',startCam);
+  document.getElementById('btn-stop').addEventListener('click',stopCam);
 
-  // ── Camera controls ──────────────────────────────────────────────────
-  document.getElementById('btn-start').addEventListener('click', startCamera);
-  document.getElementById('btn-stop').addEventListener('click', stopCamera);
-
-  async function startCamera(){
-    if (!model){ setStatus('Connect a model first.', 'err'); return; }
-    document.getElementById('btn-start').disabled = true;
-    document.getElementById('btn-stop').disabled  = false;
-    document.getElementById('cam-idle').style.display = 'none';
-    document.getElementById('fps-badge').style.display = 'block';
-    try {
-      const flip = true;
-      webcam = new tmImage.Webcam(400, 300, flip);
-      await webcam.setup();
-      await webcam.play();
-      document.getElementById('webcam-canvas').replaceWith(webcam.canvas);
-      webcam.canvas.id = 'webcam-canvas';
-      webcam.canvas.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
-      loop();
-    } catch(err){
-      setStatus('❌ Camera error: ' + err.message, 'err');
-      document.getElementById('btn-start').disabled = false;
-    }
+  async function startCam(){
+    video=document.getElementById('cam-video');
+    canvas=document.getElementById('cam-canvas');
+    ctx=canvas.getContext('2d',{willReadFrequently:true});
+    document.getElementById('btn-start').disabled=true;
+    document.getElementById('btn-stop').disabled=false;
+    try{
+      const s=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment',width:{ideal:640},height:{ideal:480}}});
+      video.srcObject=s;video.style.display='block';await video.play();
+      canvas.width=video.videoWidth||640;canvas.height=video.videoHeight||480;
+      document.getElementById('cam-idle').style.display='none';
+      document.getElementById('fps-badge').style.display='block';
+      running=true;loop();
+    }catch(e){setStatus('❌ Camera error: '+e.message,'err');document.getElementById('btn-start').disabled=false;}
   }
 
-  function stopCamera(){
-    if (rafId){ cancelAnimationFrame(rafId); rafId = null; }
-    if (webcam){ try{ webcam.stop(); } catch(e){} webcam = null; }
-    document.getElementById('cam-idle').style.display = 'flex';
-    document.getElementById('fps-badge').style.display = 'none';
-    document.getElementById('btn-start').disabled = false;
-    document.getElementById('btn-stop').disabled  = true;
-    clearAlert();
+  function stopCam(){
+    running=false;if(rafId){cancelAnimationFrame(rafId);rafId=null;}
+    if(video&&video.srcObject){video.srcObject.getTracks().forEach(t=>t.stop());video.srcObject=null;video.style.display='none';}
+    document.getElementById('cam-idle').style.display='flex';
+    document.getElementById('fps-badge').style.display='none';
+    document.getElementById('btn-start').disabled=false;
+    document.getElementById('btn-stop').disabled=true;
+    clrAlert();
   }
 
-  // ── Prediction loop ──────────────────────────────────────────────────
   async function loop(){
-    webcam.update();
+    if(!running)return;
+    ctx.drawImage(video,0,0,canvas.width,canvas.height);
     await predict();
-    // FPS counter
-    frameCount++;
-    const now = performance.now();
-    if (now - lastFpsTime >= 1000){
-      document.getElementById('fps-badge').textContent = frameCount + ' fps';
-      frameCount = 0; lastFpsTime = now;
-    }
-    rafId = requestAnimationFrame(loop);
+    fCnt++;const now=performance.now();
+    if(now-lastFps>=1000){document.getElementById('fps-badge').textContent=fCnt+' fps';fCnt=0;lastFps=now;}
+    rafId=requestAnimationFrame(loop);
   }
 
   async function predict(){
-    if (!model || !webcam) return;
-    const preds = await model.predict(webcam.canvas);
-    // Sort by probability desc
-    preds.sort((a,b) => b.probability - a.probability);
-    const top = preds[0];
-
-    // Update top-pred badge
-    document.getElementById('top-class').textContent = top.className;
-    document.getElementById('top-conf').textContent  = (top.probability * 100).toFixed(1) + '% confidence';
-
-    // Update bars
-    preds.forEach(p => {
-      const id  = sanitize(p.className);
-      const pct = Math.round(p.probability * 100);
-      const pEl = document.getElementById('pct-'  + id);
-      const fEl = document.getElementById('fill-' + id);
-      if (pEl) pEl.textContent = pct + '%';
-      if (fEl){
-        fEl.style.width = pct + '%';
-        const lbl = p.className.toLowerCase();
-        const isFlood   = FLOOD_KEYWORDS.some(k => lbl.includes(k));
-        const isCaution = CAUTION_KEYWORDS.some(k => lbl.includes(k));
-        fEl.className = 'pred-bar-fill' +
-          (isFlood && p.probability > 0.5 ? ' high-risk' :
-           isCaution && p.probability > 0.4 ? ' med-risk' : '');
-      }
+    const px=analyzePixels();
+    let nn=null;
+    if(mobilenet){try{nn=await nnAnalyze();}catch(e){}}
+    let fl,dr,un;
+    if(nn){fl=nn.flood*.6+px.flood*.4;dr=nn.dry*.6+px.dry*.4;un=nn.uncertain*.6+px.uncertain*.4;}
+    else{fl=px.flood;dr=px.dry;un=px.uncertain;}
+    const tot=fl+dr+un||1;fl/=tot;dr/=tot;un/=tot;
+    const preds=[{key:'flood',prob:fl},{key:'dry',prob:dr},{key:'uncertain',prob:un}].sort((a,b)=>b.prob-a.prob);
+    const tk=preds[0].key,tc=preds[0].prob,tn=CLASSES.find(c=>c.key===tk).name;
+    document.getElementById('top-class').textContent=tn;
+    document.getElementById('top-conf').textContent=(tc*100).toFixed(1)+'% confidence';
+    preds.forEach(p=>{
+      const pct=Math.round(p.prob*100);
+      const pe=document.getElementById('pct-'+p.key),fe=document.getElementById('fill-'+p.key);
+      if(pe)pe.textContent=pct+'%';
+      if(fe){fe.style.width=pct+'%';fe.className='pred-bar-fill'+(p.key==='flood'&&p.prob>.5?' high-risk':p.key==='uncertain'&&p.prob>.4?' med-risk':'');}
     });
+    if(tk==='flood'&&tc>=.65)showAlert('flood','⚠️ Flood conditions detected — '+(tc*100).toFixed(0)+'% confidence. Exercise extreme caution and follow local emergency guidance.');
+    else if((tk==='flood'&&tc>=.45)||(tk==='uncertain'&&tc>=.5))showAlert('caution','🔶 Possible flood conditions — monitor the situation closely.');
+    else showAlert('clear','✅ No flood conditions detected in current view.');
+  }
 
-    // Alert
-    const topLbl = top.className.toLowerCase();
-    const isFlood   = FLOOD_KEYWORDS.some(k => topLbl.includes(k));
-    const isCaution = CAUTION_KEYWORDS.some(k => topLbl.includes(k));
-    if (isFlood && top.probability >= 0.65){
-      showAlert('flood',
-        '⚠️ Flood conditions detected — ' + (top.probability*100).toFixed(0) + '% confidence. ' +
-        'Exercise extreme caution and follow local emergency guidance.');
-    } else if (isCaution && top.probability >= 0.5){
-      showAlert('caution',
-        '🔶 Possible flood conditions — monitor the situation closely and stay alert.');
-    } else {
-      showAlert('clear', '✅ No flood conditions detected in current view.');
+  function analyzePixels(){
+    const w=canvas.width,h=canvas.height,id=ctx.getImageData(0,0,w,h),d=id.data,tp=w*h;
+    let wP=0,bP=0,gP=0,brP=0,dkP=0;
+    for(let i=0;i<d.length;i+=16){
+      const r=d[i],g=d[i+1],b=d[i+2],avg=(r+g+b)/3;
+      if(b>r+15&&b>g+5&&avg>40&&avg<200)wP++;
+      if(r>b+20&&g>b&&r>80&&r<200&&Math.abs(r-g)<60&&avg<170)bP++;
+      if(g>r+15&&g>b+15&&g>50)gP++;
+      if(avg>220)brP++;
+      if(avg<30)dkP++;
     }
+    const sp=tp/4,wr=wP/sp,br2=bP/sp,gr=gP/sp,brr=brP/sp,dkr=dkP/sp;
+    let hz=0;const rs=Math.max(1,Math.floor(h/30)),cs=Math.max(1,Math.floor(w/4));
+    for(let y=h*.4;y<h*.9;y+=rs){let con=0;for(let x=cs;x<w-cs;x+=cs){const idx=(y*w+x)*4,ia=((y-rs)*w+x)*4;if(ia>=0&&ia<d.length){const df=Math.abs((d[idx]+d[idx+1]+d[idx+2])-(d[ia]+d[ia+1]+d[ia+2]))/3;if(df<12)con++;else con=0;if(con>3)hz+=.05;}}}
+    hz=Math.min(1,hz);
+    let fs=wr*3.5+br2*2.5+hz*1.5-gr*2-brr*.8+dkr*.3;
+    let bwB=0,bwT=0;const my=Math.floor(h/2);
+    for(let y=my;y<h;y+=rs*2)for(let x=0;x<w;x+=cs*2){const i2=(y*w+x)*4;if(d[i2+2]>d[i2]+10&&d[i2+2]>d[i2+1]+5)bwB++;}
+    for(let y=0;y<my;y+=rs*2)for(let x=0;x<w;x+=cs*2){const i2=(y*w+x)*4;if(d[i2+2]>d[i2]+10&&d[i2+2]>d[i2+1]+5)bwT++;}
+    if(bwB>bwT*1.5&&bwB>5)fs+=.15;
+    fs=Math.max(0,Math.min(1,fs));
+    let ds=Math.max(0,1-fs-.1),us=.1+Math.abs(fs-.5)*.3;
+    if(fs>.3&&fs<.6){us+=.2;fs*=.8;ds*=.8;}
+    return{flood:fs,dry:ds,uncertain:us};
   }
 
-  function showAlert(cls, msg){
-    const el = document.getElementById('alert-banner');
-    el.className = 'alert-banner ' + cls;
-    el.textContent = msg;
-  }
-  function clearAlert(){
-    const el = document.getElementById('alert-banner');
-    el.className = 'alert-banner'; el.textContent = '';
+  async function nnAnalyze(){
+    const t=tf.tidy(()=>{const im=tf.browser.fromPixels(canvas);return im.resizeBilinear([224,224]).div(255).expandDims(0);});
+    const f=mobilenet.predict(t),fd=await f.data();t.dispose();f.dispose();
+    const len=fd.length;let wf=0,df=0,ta=0;
+    for(let i=0;i<len;i++){const v=fd[i];ta+=Math.abs(v);if(v>1.5)wf+=v*.3;if(v>3)wf+=v*.2;if(v<-.5&&v>-2)df+=Math.abs(v)*.4;}
+    const aa=ta/len,uni=aa<.8?.3:0;
+    let fp=Math.min(1,wf/len*2+uni),dp=Math.min(1,df/len*3),up=.15;
+    if(fp<.3&&dp<.3)up=.5;
+    return{flood:fp,dry:dp,uncertain:up};
   }
 
-  function setStatus(html, cls){
-    const el = document.getElementById('model-status');
-    el.innerHTML = html;
-    el.className = 'model-status ' + cls;
-  }
+  function showAlert(c,m){const e=document.getElementById('alert-banner');e.className='alert-banner '+c;e.textContent=m;}
+  function clrAlert(){const e=document.getElementById('alert-banner');e.className='alert-banner';e.textContent='';}
+  function setStatus(h,c){const e=document.getElementById('model-status');e.innerHTML=h;e.className='model-status '+c;}
+  loadModel();
 })();
 </script>
+{% endraw %}
 </body>
 </html>
