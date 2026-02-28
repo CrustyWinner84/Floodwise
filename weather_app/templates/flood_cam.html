@@ -203,7 +203,7 @@
     const grid=document.getElementById('cam-grid');
     grid.innerHTML=cams.map((c,i)=>`
       <div class="cam-card" data-idx="${i}" data-url="${c.image_url}" data-name="${c.name||'Camera '+(i+1)}">
-        <img class="cam-thumb" src="${c.image_url}" alt="${c.name||'Camera'}" crossorigin="anonymous" onerror="this.style.display='none'">
+        <img class="cam-thumb" src="${c.image_url}" alt="${c.name||'Camera'}" onerror="this.style.display='none'">
         <div class="cam-card-info">
           <div class="cam-name">${c.name||'Camera '+(i+1)}</div>
           <div class="cam-loc">${c.description||c.location||''}</div>
