@@ -330,22 +330,81 @@
   rainSlider.addEventListener('input',()=>{document.getElementById('rain-val').textContent=rainSlider.value;updateWater();});
   durSlider.addEventListener('input',()=>{document.getElementById('dur-val').textContent=durSlider.value;updateWater();});
 
+  function computeSimulatedRisk(rainfall,duration){
+    /* Mirror the backend scoring logic from app.py */
+    if(!locData) return {score:0,level:'low'};
+    const elev=locData.elevation_m||locData.elevation||50;
+
+    // --- Precipitation intensity risk (max 10) ---
+    const intensity=duration>0?rainfall/duration:rainfall;
+    let precipRisk=0;
+    if(intensity>6)precipRisk=10;       // >6 mm/hr = extreme
+    else if(intensity>3)precipRisk=8;   // 3-6 mm/hr = heavy
+    else if(intensity>1.5)precipRisk=6; // 1.5-3 mm/hr = moderate
+    else if(intensity>0.5)precipRisk=4; // 0.5-1.5 mm/hr = light-mod
+    else if(intensity>0.1)precipRisk=3; // light drizzle
+
+    // --- Cumulative rainfall risk (max 25) ---
+    let cumRisk=0;
+    if(rainfall>150)cumRisk=25;
+    else if(rainfall>80)cumRisk=18;
+    else if(rainfall>40)cumRisk=10;
+    else if(rainfall>15)cumRisk=4;
+
+    // --- Terrain / elevation risk (max 20) ---
+    let terrainRisk=0;
+    if(elev<10)terrainRisk=20;
+    else if(elev<30)terrainRisk=16;
+    else if(elev<100)terrainRisk=12;
+    else if(elev<300)terrainRisk=8;
+    else if(elev<800)terrainRisk=4;
+
+    // --- Water proximity risk (max 20) ---
+    let waterRisk=0;
+    if(locData.near_water_body){
+      const dist=locData.water_distance_m||5000;
+      if(dist<200)waterRisk=20;
+      else if(dist<500)waterRisk=15;
+      else if(dist<1000)waterRisk=10;
+      else if(dist<2000)waterRisk=5;
+      else waterRisk=2;
+    }
+
+    // --- Duration saturation bonus (max 10) ---
+    // Long-duration storms saturate soil → higher risk
+    let durBonus=0;
+    if(duration>=60)durBonus=10;
+    else if(duration>=48)durBonus=8;
+    else if(duration>=24)durBonus=5;
+    else if(duration>=12)durBonus=3;
+    else if(duration>=6)durBonus=1;
+
+    // --- Historical / base risk (max 15) ---
+    // Use actual API risk_score to estimate FEMA+USGS contribution
+    const baseRisk=locData.risk_score||0;
+    const histRisk=Math.min(15, Math.max(0, Math.round(baseRisk*0.3)));
+
+    const score=Math.min(100, precipRisk+cumRisk+terrainRisk+waterRisk+durBonus+histRisk);
+    let level='low';
+    if(score>=80)level='extreme';
+    else if(score>=60)level='very high';
+    else if(score>=45)level='high';
+    else if(score>=30)level='moderate';
+    return {score,level};
+  }
+
   function updateWater(){
     const rainfall=parseFloat(rainSlider.value);
     const duration=parseFloat(durSlider.value);
     // Simplified water level model
-    // Base: 1mm rain over 1hr ≈ 0.001m, modified by terrain + proximity
-    let baseLevel=(rainfall*duration*0.001)/12;// rough mm→m
-    // Terrain modifier: low elevation = more accumulation
+    let baseLevel=(rainfall*duration*0.001)/12;
     if(locData){
       const elev=locData.elevation_m||locData.elevation||50;
       if(elev<5)baseLevel*=3;
       else if(elev<15)baseLevel*=2;
       else if(elev<30)baseLevel*=1.5;
-      // Water proximity increases risk
       if(locData.near_water_body)baseLevel*=1.5;
     }
-    // Clamp
     const level=Math.min(baseLevel,15);
 
     // Update 3D
@@ -355,6 +414,11 @@
     // Update stats
     document.getElementById('s-level').textContent=level.toFixed(2)+' m';
     document.getElementById('s-level').style.color=level>1?'#ef4444':level>0.3?'#f59e0b':'#22c55e';
+
+    // --- Simulated flood risk (recomputed from sliders) ---
+    const sim=computeSimulatedRisk(rainfall,duration);
+    document.getElementById('s-risk').textContent=sim.score+'/100';
+    document.getElementById('s-risk').style.color=sim.score>=60?'#ef4444':sim.score>=30?'#f59e0b':'#22c55e';
 
     let scenario='Dry';
     if(rainfall>=100)scenario='Extreme Flood';
@@ -367,9 +431,9 @@
       rainfall>=100?'#ef4444':rainfall>=50?'#f97316':rainfall>=25?'#f59e0b':rainfall>=10?'#facc15':'#22c55e';
 
     // Water color based on severity
-    if(level>1){waterMat.color.setHex(0x8b4513);/* muddy brown */}
-    else if(level>0.3){waterMat.color.setHex(0x2e6b8a);/* dark water */}
-    else{waterMat.color.setHex(0x1e6091);/* calm blue */}
+    if(level>1){waterMat.color.setHex(0x8b4513);}
+    else if(level>0.3){waterMat.color.setHex(0x2e6b8a);}
+    else{waterMat.color.setHex(0x1e6091);}
   }
 
   // Camera toggle
