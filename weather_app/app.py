@@ -2369,16 +2369,154 @@ def api_reword():
 # Traffic / Weather Camera APIs
 # ---------------------------------------------------------------------------
 
+# Caltrans CCTV district endpoints (free, no API key)
+_CALTRANS_DISTRICTS = {
+    1: 'D01', 2: 'D02', 3: 'D03', 4: 'D04', 5: 'D05',
+    6: 'D06', 7: 'D07', 8: 'D08', 10: 'D10', 11: 'D11', 12: 'D12',
+}
+
+# Map California lat ranges to likely Caltrans districts
+def _ca_districts_for_bbox(min_lat, max_lat):
+    """Return likely Caltrans district numbers for a latitude range."""
+    dists = []
+    if max_lat >= 40.0:                dists.append(1)   # Eureka / NorCal
+    if max_lat >= 39.5 and min_lat <= 41.0: dists.append(2)   # Redding
+    if max_lat >= 37.5 and min_lat <= 40.5: dists.append(3)   # Sacramento
+    if max_lat >= 37.0 and min_lat <= 38.5: dists.append(4)   # Bay Area
+    if max_lat >= 34.5 and min_lat <= 37.5: dists.append(5)   # SLO / Central Coast
+    if max_lat >= 35.5 and min_lat <= 38.5: dists.append(6)   # Fresno / Central Valley
+    if max_lat >= 33.5 and min_lat <= 35.0: dists.append(7)   # LA
+    if max_lat >= 33.5 and min_lat <= 35.5: dists.append(8)   # San Bernardino
+    if max_lat >= 36.0 and min_lat <= 38.0: dists.append(10)  # Stockton
+    if max_lat >= 32.5 and min_lat <= 33.5: dists.append(11)  # San Diego
+    if max_lat >= 33.5 and min_lat <= 34.5: dists.append(12)  # Orange County
+    return dists
+
+
+def _fetch_wsdot_cameras(lat, lon, radius_km):
+    """Query WSDOT ArcGIS FeatureServer for live traffic cameras.
+    Returns list of camera dicts.  Free, no API key needed.
+    1,647 cameras across Washington State.
+    """
+    import math
+    cameras = []
+    # Build a bounding box in lat/lon (EPSG:4326)
+    dlat = radius_km / 111.0
+    dlon = radius_km / (111.0 * max(math.cos(math.radians(lat)), 0.01))
+    bbox = f'{lon - dlon},{lat - dlat},{lon + dlon},{lat + dlat}'
+    url = (
+        'https://data.wsdot.wa.gov/arcgis/rest/services/'
+        'TravelInformation/TravelInfoCamerasWeather/FeatureServer/0/query'
+    )
+    params = {
+        'where': '1=1',
+        'outFields': 'CameraTitle,ImageURL,CompassDirection',
+        'f': 'json',
+        'outSR': '4326',
+        'geometry': bbox,
+        'geometryType': 'esriGeometryEnvelope',
+        'inSR': '4326',
+        'resultRecordCount': 50,
+    }
+    try:
+        resp = requests.get(url, params=params, timeout=10)
+        if resp.ok:
+            data = resp.json()
+            for feat in data.get('features', []):
+                attr = feat.get('attributes', {})
+                geom = feat.get('geometry', {})
+                img_url = attr.get('ImageURL', '')
+                if not img_url:
+                    continue
+                clat = geom.get('y', 0)
+                clon = geom.get('x', 0)
+                dist = math.sqrt((lat - clat)**2 + (lon - clon)**2) * 111
+                if dist <= radius_km:
+                    direction = attr.get('CompassDirection', '')
+                    dir_str = f' ({direction})' if direction and direction != 'B' else ''
+                    cameras.append({
+                        'name': (attr.get('CameraTitle', 'WSDOT Camera') + dir_str),
+                        'image_url': img_url,
+                        'description': attr.get('CameraTitle', ''),
+                        'location': f'{clat},{clon}',
+                        'source': 'WSDOT',
+                        'distance_km': round(dist, 1),
+                    })
+    except Exception as e:
+        logger.debug('WSDOT ArcGIS camera query failed: %s', e)
+    return cameras
+
+
+def _fetch_caltrans_cameras(lat, lon, radius_km):
+    """Query Caltrans CCTV JSON feeds for live traffic cameras.
+    Returns list of camera dicts.  Free, no API key needed.
+    Each district has its own endpoint with ~200-800 cameras.
+    """
+    import math
+    cameras = []
+    dlat = radius_km / 111.0
+    min_lat, max_lat = lat - dlat, lat + dlat
+    districts = _ca_districts_for_bbox(min_lat, max_lat)
+    if not districts:
+        return cameras
+
+    for d_num in districts[:3]:  # limit to 3 districts to stay fast
+        d_code = _CALTRANS_DISTRICTS.get(d_num)
+        if not d_code:
+            continue
+        url = f'https://cwwp2.dot.ca.gov/data/d{d_num}/cctv/cctvStatus{d_code}.json'
+        try:
+            resp = requests.get(url, timeout=8)
+            if not resp.ok:
+                continue
+            data = resp.json()
+            cams_list = data.get('data', []) if isinstance(data, dict) else data
+            for cam in cams_list:
+                cc = cam.get('cctv', {})
+                loc = cc.get('location', {})
+                clat_s = loc.get('latitude')
+                clon_s = loc.get('longitude')
+                if not clat_s or not clon_s:
+                    continue
+                if cc.get('inService') == 'false':
+                    continue
+                clat = float(clat_s)
+                clon = float(clon_s)
+                dist = math.sqrt((lat - clat)**2 + (lon - clon)**2) * 111
+                if dist > radius_km:
+                    continue
+                img_data = cc.get('imageData', {})
+                img_url = ''
+                if isinstance(img_data, dict):
+                    static = img_data.get('static', {})
+                    if isinstance(static, dict):
+                        img_url = static.get('currentImageURL', '')
+                if not img_url:
+                    continue
+                cameras.append({
+                    'name': loc.get('locationName', 'Caltrans Camera'),
+                    'image_url': img_url,
+                    'description': f"{loc.get('route', '')} near {loc.get('nearbyPlace', '')}".strip(),
+                    'location': f'{clat},{clon}',
+                    'source': 'Caltrans',
+                    'distance_km': round(dist, 1),
+                })
+        except Exception as e:
+            logger.debug('Caltrans D%s camera query failed: %s', d_num, e)
+    return cameras
+
+
 @app.route('/api/traffic-cams')
 def api_traffic_cams():
     """Find public traffic/weather cameras near a location.
-    Uses the Windy.com webcams API (free tier, 1000/day) and fallback
-    to 511 / DOT sources.
+    Sources:
+      - WSDOT ArcGIS (1,647 cameras across WA) — free, no key
+      - Caltrans CCTV (3,000+ cameras across CA) — free, no key
     """
     lat = request.args.get('lat', type=float)
     lon = request.args.get('lon', type=float)
     location = request.args.get('location', '').strip()
-    radius = request.args.get('radius', default=30, type=int)  # km
+    radius = request.args.get('radius', default=50, type=int)  # km
 
     if lat is None or lon is None:
         if not location:
@@ -2390,121 +2528,22 @@ def api_traffic_cams():
 
     cameras = []
 
-    # --- Source 1: Windy Webcams API (free, no key needed for basic) ---
-    try:
-        windy_url = f'https://api.windy.com/webcams/api/v3/webcams'
-        windy_params = {
-            'nearby': f'{lat},{lon},{radius}',
-            'include': 'images,location',
-            'limit': 12,
-        }
-        windy_headers = {
-            'x-windy-api-key': os.environ.get('WINDY_API_KEY', ''),
-        }
-        # If no API key, try the public endpoint
-        if not windy_headers['x-windy-api-key']:
-            # Fallback: use the legacy v2 no-key endpoint
-            windy_url = f'https://api.windy.com/api/webcams/v2/list/nearby={lat},{lon},{radius}/limit=12'
-            windy_params = {'show': 'webcams:image,location'}
-            windy_headers = {}
+    # Determine which sources to query based on approximate US region
+    # WSDOT: Washington State (lat ~45.5-49, lon ~-125 to -117)
+    if 45.0 <= lat <= 49.5 and -125.5 <= lon <= -116.5:
+        cameras.extend(_fetch_wsdot_cameras(lat, lon, radius))
 
-        w_resp = requests.get(windy_url, params=windy_params, headers=windy_headers, timeout=8)
-        if w_resp.ok:
-            w_data = w_resp.json()
-            # v3 format
-            webcams = w_data.get('webcams', [])
-            # v2 format
-            if not webcams and 'result' in w_data:
-                webcams = w_data.get('result', {}).get('webcams', [])
-            for wc in webcams[:12]:
-                img = ''
-                # v3
-                if 'images' in wc:
-                    img = (wc['images'].get('current', {}).get('preview', '') or
-                           wc['images'].get('current', {}).get('thumbnail', ''))
-                # v2
-                elif 'image' in wc:
-                    img = (wc['image'].get('current', {}).get('preview', '') or
-                           wc['image'].get('current', {}).get('thumbnail', ''))
-                loc_info = wc.get('location', {})
-                if img:
-                    cameras.append({
-                        'name': wc.get('title', 'Webcam'),
-                        'image_url': img,
-                        'description': loc_info.get('city', '') + (', ' + loc_info.get('region', '') if loc_info.get('region') else ''),
-                        'location': f"{loc_info.get('latitude', lat)},{loc_info.get('longitude', lon)}",
-                        'source': 'Windy Webcams',
-                        'distance_km': None,
-                    })
-    except Exception as e:
-        logger.debug('Windy webcams lookup failed: %s', e)
+    # Caltrans: California (lat ~32-42, lon ~-125 to -114)
+    if 32.0 <= lat <= 42.5 and -125.5 <= lon <= -114.0:
+        cameras.extend(_fetch_caltrans_cameras(lat, lon, radius))
 
-    # --- Source 2: WSDOT (Washington State) traffic cameras ---
-    try:
-        wsdot_url = 'https://data.wsdot.wa.gov/log/casa/traveler/cameras.json'
-        ws_resp = requests.get(wsdot_url, timeout=8)
-        if ws_resp.ok:
-            ws_cams = ws_resp.json()
-            if isinstance(ws_cams, list):
-                import math
-                for cam in ws_cams:
-                    clat = cam.get('CameraLocation', {}).get('Latitude') or cam.get('Latitude')
-                    clon = cam.get('CameraLocation', {}).get('Longitude') or cam.get('Longitude')
-                    if clat and clon:
-                        dist = math.sqrt((lat - clat)**2 + (lon - clon)**2) * 111
-                        if dist <= radius:
-                            img_url = cam.get('ImageURL') or cam.get('ImageUrl') or ''
-                            if img_url:
-                                cameras.append({
-                                    'name': cam.get('Title') or cam.get('Description') or 'WSDOT Camera',
-                                    'image_url': img_url,
-                                    'description': cam.get('Description') or cam.get('RoadName', ''),
-                                    'location': f'{clat},{clon}',
-                                    'source': 'WSDOT',
-                                    'distance_km': round(dist, 1),
-                                })
-    except Exception as e:
-        logger.debug('WSDOT cameras lookup failed: %s', e)
-
-    # --- Source 3: Generic 511 / Caltrans / other DOT APIs ---
-    try:
-        # Caltrans CCTV (California)
-        ct_url = 'https://cwwp2.dot.ca.gov/data/d3/cctv/cctvStatusD03.json'
-        ct_resp = requests.get(ct_url, timeout=6)
-        if ct_resp.ok:
-            ct_data = ct_resp.json()
-            ct_cams = ct_data.get('data', []) if isinstance(ct_data, dict) else ct_data if isinstance(ct_data, list) else []
-            import math
-            for cam in ct_cams[:100]:
-                loc2 = cam.get('location', {}) or cam.get('cctv', {}).get('location', {}) or {}
-                clat = loc2.get('latitude')
-                clon = loc2.get('longitude')
-                if clat and clon:
-                    dist = math.sqrt((lat - float(clat))**2 + (lon - float(clon))**2) * 111
-                    if dist <= radius:
-                        img_url = ''
-                        img_data = cam.get('cctv', {}).get('imageData', {}) or cam.get('imageData', {}) or {}
-                        if isinstance(img_data, dict):
-                            img_url = img_data.get('static', {}).get('currentImageURL', '') or img_data.get('streamingVideoURL', '')
-                        if img_url:
-                            cameras.append({
-                                'name': cam.get('cctv', {}).get('location', {}).get('locationName', '') or 'Caltrans Camera',
-                                'image_url': img_url,
-                                'description': cam.get('cctv', {}).get('location', {}).get('route', ''),
-                                'location': f'{clat},{clon}',
-                                'source': 'Caltrans',
-                                'distance_km': round(dist, 1),
-                            })
-    except Exception as e:
-        logger.debug('Caltrans cameras lookup failed: %s', e)
-
-    # Sort by distance if available
-    cameras.sort(key=lambda c: c.get('distance_km') or 999)
+    # Sort by distance
+    cameras.sort(key=lambda c: c['distance_km'])
 
     return jsonify({
         'lat': lat, 'lon': lon,
         'radius_km': radius,
-        'cameras': cameras[:15],
+        'cameras': cameras[:20],
     })
 
 
