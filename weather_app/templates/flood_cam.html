@@ -186,7 +186,7 @@
       const data=await res.json();
       const cams=data.cameras||[];
       if(!cams.length){
-        document.getElementById('cam-grid').innerHTML='<div class="no-cams">📷 No public cameras found near this location.<br>Try a US city or highway corridor (e.g. "Seattle, WA", "I-5 Oregon").</div>';
+        document.getElementById('cam-grid').innerHTML='<div class="no-cams">📷 No public cameras found near this location.<br>Live camera feeds are available for <b>Washington State</b> (WSDOT) and <b>California</b> (Caltrans).<br>Try: "Seattle, WA", "Snohomish, WA", "San Francisco, CA", "Los Angeles, CA"</div>';
         setSearch('No cameras found.','err');
         document.getElementById('btn-search').disabled=false;
         return;

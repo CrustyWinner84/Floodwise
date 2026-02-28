@@ -2420,12 +2420,9 @@ def _fetch_wsdot_cameras(lat, lon, radius_km):
     }
     try:
         resp = requests.get(url, params=params, timeout=10)
-        logger.info('WSDOT ArcGIS response: status=%s len=%s bbox=%s', resp.status_code, len(resp.content), bbox)
         if resp.ok:
             data = resp.json()
-            feats = data.get('features', [])
-            logger.info('WSDOT ArcGIS features: %d', len(feats))
-            for feat in feats:
+            for feat in data.get('features', []):
                 attr = feat.get('attributes', {})
                 geom = feat.get('geometry', {})
                 img_url = attr.get('ImageURL', '')
@@ -2530,30 +2527,15 @@ def api_traffic_cams():
         lat, lon, _, _ = geo
 
     cameras = []
-    debug_info = []
 
     # Determine which sources to query based on approximate US region
     # WSDOT: Washington State (lat ~45.5-49, lon ~-125 to -117)
     if 45.0 <= lat <= 49.5 and -125.5 <= lon <= -116.5:
-        debug_info.append('WSDOT: region match')
-        try:
-            wsdot_cams = _fetch_wsdot_cameras(lat, lon, radius)
-            debug_info.append(f'WSDOT: {len(wsdot_cams)} cameras found')
-            cameras.extend(wsdot_cams)
-        except Exception as e:
-            debug_info.append(f'WSDOT error: {e}')
-    else:
-        debug_info.append(f'WSDOT: no region match lat={lat} lon={lon}')
+        cameras.extend(_fetch_wsdot_cameras(lat, lon, radius))
 
     # Caltrans: California (lat ~32-42, lon ~-125 to -114)
     if 32.0 <= lat <= 42.5 and -125.5 <= lon <= -114.0:
-        debug_info.append('Caltrans: region match')
-        try:
-            ct_cams = _fetch_caltrans_cameras(lat, lon, radius)
-            debug_info.append(f'Caltrans: {len(ct_cams)} cameras found')
-            cameras.extend(ct_cams)
-        except Exception as e:
-            debug_info.append(f'Caltrans error: {e}')
+        cameras.extend(_fetch_caltrans_cameras(lat, lon, radius))
 
     # Sort by distance
     cameras.sort(key=lambda c: c['distance_km'])
@@ -2562,7 +2544,6 @@ def api_traffic_cams():
         'lat': lat, 'lon': lon,
         'radius_km': radius,
         'cameras': cameras[:20],
-        '_debug': debug_info,
     })
 
 
