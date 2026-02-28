@@ -2416,7 +2416,7 @@ def _fetch_wsdot_cameras(lat, lon, radius_km):
         'geometry': bbox,
         'geometryType': 'esriGeometryEnvelope',
         'inSR': '4326',
-        'resultRecordCount': 50,
+        'resultRecordCount': 200,
     }
     try:
         resp = requests.get(url, params=params, timeout=10)
