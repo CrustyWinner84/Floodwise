@@ -2288,6 +2288,39 @@ def api_full_report():
                 'windspeed_max_kmh':  daily.get('windspeed_10m_max',   [None])[idx],
             }
 
+    # 4b. If the target date wasn't in the historical window (e.g. today or near-future),
+    #     fall back to the forecast API which covers ~92 past days + 16 days ahead.
+    if date_str not in (daily.get('time', [])):
+        days_diff = (target_date - today).days
+        if -92 <= days_diff <= 16:
+            try:
+                _past = min(92, max(7, -days_diff + 1)) if days_diff <= 0 else 7
+                _fore = min(16, max(1, days_diff + 1))  if days_diff >= 0 else 1
+                _furl = 'https://api.open-meteo.com/v1/forecast'
+                _fpar = {
+                    'latitude': lat, 'longitude': lon,
+                    'daily': 'temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode',
+                    'past_days': _past,
+                    'forecast_days': _fore,
+                    'temperature_unit': 'celsius',
+                    'timezone': 'UTC',
+                }
+                _fr = requests.get(_furl, params=_fpar, timeout=8)
+                _fr.raise_for_status()
+                _fd = _fr.json().get('daily', {})
+                if date_str in _fd.get('time', []):
+                    daily = _fd
+                    idx = daily['time'].index(date_str)
+                    weather_that_day = {
+                        'date':               date_str,
+                        'temperature_max_c':  daily.get('temperature_2m_max',  [None])[idx],
+                        'temperature_min_c':  daily.get('temperature_2m_min',  [None])[idx],
+                        'precipitation_mm':   daily.get('precipitation_sum',   [None])[idx],
+                        'windspeed_max_kmh':  daily.get('windspeed_10m_max',   [None])[idx],
+                    }
+            except Exception:
+                logger.debug('Forecast API fallback failed for %s in full-report', date_str)
+
     # 7. Flood risk score
     flood_risk = None
     if daily and date_str in daily.get('time', []):
