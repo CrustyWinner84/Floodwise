@@ -14,6 +14,10 @@ app = Flask(__name__, template_folder='templates')
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('weather_app')
 
+# Reusable HTTP session — keeps TCP/TLS connections alive across requests
+_http = requests.Session()
+_http.headers.update({'User-Agent': 'FloodWise/2.0'})
+
 
 def get_elevation(lat: float, lon: float):
     """Get elevation (meters) for a coordinate using Open-Elevation as a best-effort lookup."""
@@ -77,7 +81,7 @@ def get_elevation(lat: float, lon: float):
     try:
         url = 'https://api.open-meteo.com/v1/elevation'
         params = {'latitude': lat, 'longitude': lon}
-        resp = requests.get(url, params=params, timeout=5)
+        resp = _http.get(url, params=params, timeout=3)
         resp.raise_for_status()
         data = resp.json()
         elevs = data.get('elevation', [])
@@ -197,7 +201,7 @@ def geocode(location: str):
             try:
                 g_url = 'https://geocoding-api.open-meteo.com/v1/search'
                 g_params = {'name': om_city, 'count': 1}
-                g_resp = requests.get(g_url, params=g_params, timeout=8)
+                g_resp = _http.get(g_url, params=g_params, timeout=5)
                 g_resp.raise_for_status()
                 g_data = g_resp.json()
                 results = g_data.get('results') or []
@@ -353,7 +357,7 @@ def get_weather(lat: float, lon: float):
         'current': 'temperature_2m,weathercode,windspeed_10m,winddirection_10m,precipitation,relative_humidity_2m',
         'timezone': 'auto'
     }
-    resp = requests.get(url, params=params, timeout=6)
+    resp = _http.get(url, params=params, timeout=4)
     resp.raise_for_status()
     data = resp.json()
     cur = data.get('current', {})
@@ -391,7 +395,7 @@ def get_historical_weather(lat: float, lon: float, start_date: str, end_date: st
         'temperature_unit': 'celsius',
         'timezone': 'UTC'
     }
-    resp = requests.get(url, params=params, timeout=8)
+    resp = _http.get(url, params=params, timeout=5)
     resp.raise_for_status()
     data = resp.json()
     result = {
@@ -476,7 +480,7 @@ def get_fema_flood_history(lat: float, lon: float):
         # Reverse geocode using BigDataCloud (free, no key, fast, no Azure blocks)
         geo_url = 'https://api.bigdatacloud.net/data/reverse-geocode-client'
         params = {'latitude': lat, 'longitude': lon, 'localityLanguage': 'en'}
-        resp = requests.get(geo_url, params=params, timeout=5)
+        resp = _http.get(geo_url, params=params, timeout=3)
         resp.raise_for_status()
         geo_data     = resp.json()
         country_code = geo_data.get('countryCode', '')
@@ -585,7 +589,7 @@ def get_usgs_stream_gauge(lat: float, lon: float):
             'parameterCd': '00065',  # Gage height in feet
             'siteStatus': 'active',
         }
-        resp = requests.get(url, params=params, timeout=8)
+        resp = _http.get(url, params=params, timeout=4)
         resp.raise_for_status()
         ts = resp.json().get('value', {}).get('timeSeries', [])
 
@@ -686,7 +690,7 @@ def get_water_proximity_score(lat: float, lon: float):
     try:
         _overpass = 'https://overpass-api.de/api/interpreter'
         _query = (
-            '[out:json][timeout:5];'
+            '[out:json][timeout:3];'
             '('
             f'way["waterway"~"^(river|stream|canal|drain)$"](around:2500,{lat},{lon});'
             f'way["natural"="water"](around:2500,{lat},{lon});'
@@ -694,7 +698,7 @@ def get_water_proximity_score(lat: float, lon: float):
             ');'
             'out center 10;'
         )
-        _resp = requests.post(_overpass, data={'data': _query}, timeout=6)
+        _resp = _http.post(_overpass, data={'data': _query}, timeout=3)
         _resp.raise_for_status()
         _elements = _resp.json().get('elements', [])
         if _elements:
@@ -1398,7 +1402,7 @@ def get_forecast_weather(lat: float, lon: float, days: int = 16):
     last_exc = None
     for attempt in range(2):
         try:
-            resp = requests.get(url, params=params, timeout=8)
+            resp = _http.get(url, params=params, timeout=5)
             resp.raise_for_status()
             return resp.json().get('daily', {})
         except Exception as exc:
@@ -1509,7 +1513,7 @@ def api_forecast_risk():
         import time as _t
         from concurrent.futures import ThreadPoolExecutor
         _t0 = _t.monotonic()
-        _BUDGET = 20.0  # hard wall-clock budget for all futures combined
+        _BUDGET = 8.0  # hard wall-clock budget for all futures combined
 
         def _get_fc(future, default):
             remaining = max(0.1, _BUDGET - (_t.monotonic() - _t0))
@@ -2233,20 +2237,24 @@ def api_full_report():
 
     lat, lon, display_name, elevation = geo
 
-    # 2–6. Compute date window capped to historical data available (archive API lags ~2 days).
-    # Always use a fixed 30-day trailing window so we never request future dates.
+    # 2–6. Compute date window capped to historical data available (archive API lags ~5 days).
     today       = datetime.utcnow().date()
     target_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-    # hist_end is the earlier of (target_date) and (today - 2 days)
-    hist_end_date   = min(target_date, today - timedelta(days=2))
-    hist_start_date = hist_end_date - timedelta(days=30)
-    hist_start = hist_start_date.strftime('%Y-%m-%d')
-    hist_end   = hist_end_date.strftime('%Y-%m-%d')
+    days_from_today = (target_date - today).days  # negative = past
+
+    # Only fetch archive when the target date is old enough to exist in it
+    need_archive = days_from_today < -2
+    hist_start = hist_end = None
+    if need_archive:
+        hist_end_date   = min(target_date, today - timedelta(days=2))
+        hist_start_date = hist_end_date - timedelta(days=30)
+        hist_start = hist_start_date.strftime('%Y-%m-%d')
+        hist_end   = hist_end_date.strftime('%Y-%m-%d')
 
     import time as _t
     from concurrent.futures import ThreadPoolExecutor
     _t0 = _t.monotonic()
-    _BUDGET = 7.0  # hard wall-clock budget — all 4 futures must finish within 7s
+    _BUDGET = 5.0  # hard wall-clock budget — all futures must finish within 5s
 
     def _get(future, default):
         remaining = max(0.1, _BUDGET - (_t.monotonic() - _t0))
@@ -2257,16 +2265,15 @@ def api_full_report():
 
     with ThreadPoolExecutor(max_workers=5) as pool:
         f_weather = pool.submit(get_weather, lat, lon)
-        f_hist    = pool.submit(get_historical_weather, lat, lon, hist_start, hist_end)
+        f_hist    = pool.submit(get_historical_weather, lat, lon, hist_start, hist_end) if need_archive else None
         f_fema    = pool.submit(get_fema_flood_history, lat, lon)
         f_usgs    = pool.submit(get_usgs_stream_gauge, lat, lon)
         f_water   = pool.submit(get_water_proximity_score, lat, lon)
 
         current_weather = _get(f_weather, None)
-        historical_data = _get(f_hist,    None)
-        # FEMA gets its own 6s budget — static fallback completes in <1ms once geocoded
+        historical_data = _get(f_hist, None) if f_hist else None
         try:
-            fema_data = f_fema.result(timeout=6)
+            fema_data = f_fema.result(timeout=max(0.1, 3.0 - (_t.monotonic() - _t0)))
         except Exception:
             fema_data = {'events': [], 'historical_risk_score': 0}
         usgs_data  = _get(f_usgs,  {'gauges': [], 'gauge_risk_score': 0})
@@ -2305,7 +2312,7 @@ def api_full_report():
                     'temperature_unit': 'celsius',
                     'timezone': 'UTC',
                 }
-                _fr = requests.get(_furl, params=_fpar, timeout=8)
+                _fr = _http.get(_furl, params=_fpar, timeout=4)
                 _fr.raise_for_status()
                 _fd = _fr.json().get('daily', {})
                 if date_str in _fd.get('time', []):
@@ -2420,6 +2427,13 @@ def add_cors(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, OPTIONS'
     response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    # Performance: add cache headers for API and HTML responses
+    if request.path.startswith('/api/'):
+        # API data: cache for 2 minutes (weather changes slowly)
+        response.headers.setdefault('Cache-Control', 'public, max-age=120')
+    elif request.path == '/' or request.path.endswith('.html'):
+        # HTML pages: cache for 5 minutes
+        response.headers.setdefault('Cache-Control', 'public, max-age=300')
     return response
 
 
