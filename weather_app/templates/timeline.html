@@ -4,26 +4,26 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Flood Timeline — FloodWise</title>
-  <link href="https://fonts.googleapis.com/css2?family=McLaren&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Sora:wght@600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
   <style>
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    html,body{min-height:100%;font-family:"McLaren",Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#e2e8f0;background:radial-gradient(ellipse at 15% 50%,rgba(0,200,180,.08) 0%,transparent 55%),radial-gradient(ellipse at 85% 20%,rgba(80,50,220,.11) 0%,transparent 45%),radial-gradient(ellipse at 60% 85%,rgba(0,120,230,.09) 0%,transparent 45%),linear-gradient(160deg,#070d2a 0%,#04091c 40%,#0b1735 70%,#030c1a 100%)}
+    html,body{min-height:100%;font-family:"Inter",Arial,sans-serif;-webkit-font-smoothing:antialiased;color:#e2e8f0;background:radial-gradient(ellipse at 15% 50%,rgba(0,200,180,.08) 0%,transparent 55%),radial-gradient(ellipse at 85% 20%,rgba(80,50,220,.11) 0%,transparent 45%),radial-gradient(ellipse at 60% 85%,rgba(0,120,230,.09) 0%,transparent 45%),linear-gradient(160deg,#070d2a 0%,#04091c 40%,#0b1735 70%,#030c1a 100%)}
     body{max-width:1060px;margin:0 auto;padding:2rem 1.25rem 5rem}
     .top-nav{display:flex;align-items:center;justify-content:center;gap:.6rem;margin-bottom:2.2rem;flex-wrap:wrap}
     .top-nav a{text-decoration:none;color:#7cb8f5;font-size:.85rem;padding:.35rem .9rem;border-radius:20px;border:1px solid rgba(100,160,255,.2);transition:background .2s,color .2s}
     .top-nav a:hover,.top-nav a.active{background:rgba(100,160,255,.15);color:#b8d9ff}
     .page-header{text-align:center;margin-bottom:2.5rem}
-    .page-header h1{font-size:2rem;color:#b8d9ff;letter-spacing:.5px}
+    .page-header h1{font-size:2rem;color:#b8d9ff;letter-spacing:.5px;font-family:"Sora",sans-serif}
     .page-header p{color:#7cb8f5;font-size:.95rem;margin-top:.4rem;max-width:640px;margin-inline:auto}
     .card{background:rgba(5,15,50,.6);border:1px solid rgba(100,160,255,.18);border-radius:14px;padding:1.5rem 1.75rem;backdrop-filter:blur(8px);margin-bottom:1.6rem}
-    .card h2{font-size:1.05rem;color:#b8d9ff;margin-bottom:1rem}
+    .card h2{font-size:1.05rem;color:#b8d9ff;margin-bottom:1rem;font-family:"Sora",sans-serif}
     /* Search row */
     .search-row{display:flex;gap:.7rem;flex-wrap:wrap;margin-bottom:1rem}
-    .search-row input{flex:1 1 250px;background:rgba(255,255,255,.07);border:1px solid rgba(100,160,255,.25);border-radius:8px;padding:.6rem .9rem;color:#e2e8f0;font-family:"McLaren",Arial,sans-serif;font-size:.9rem;outline:none}
+    .search-row input{flex:1 1 250px;background:rgba(255,255,255,.07);border:1px solid rgba(100,160,255,.25);border-radius:8px;padding:.6rem .9rem;color:#e2e8f0;font-family:"Inter",Arial,sans-serif;font-size:.9rem;outline:none}
     .search-row input::placeholder{color:#4a7096}
     .search-row input:focus{border-color:rgba(100,160,255,.55)}
-    .btn-go{background:linear-gradient(135deg,#1d4ed8,#0891b2);border:none;border-radius:8px;padding:.6rem 1.4rem;color:#fff;font-family:"McLaren",Arial,sans-serif;font-size:.9rem;cursor:pointer;transition:opacity .2s;white-space:nowrap}
+    .btn-go{background:linear-gradient(135deg,#1d4ed8,#0891b2);border:none;border-radius:8px;padding:.6rem 1.4rem;color:#fff;font-family:"Inter",Arial,sans-serif;font-size:.9rem;font-weight:600;cursor:pointer;transition:opacity .2s;white-space:nowrap}
     .btn-go:hover{opacity:.88}
     .btn-go:disabled{opacity:.45;cursor:not-allowed}
     .status-msg{font-size:.82rem;margin-top:.4rem;min-height:1.2em}
@@ -38,7 +38,7 @@
     /* Day detail tooltip */
     .day-detail{background:rgba(5,15,50,.85);border:1px solid rgba(100,160,255,.3);border-radius:12px;padding:1.1rem 1.3rem;margin-top:1rem;display:none}
     .day-detail.visible{display:block}
-    .day-detail h3{font-size:.95rem;color:#b8d9ff;margin-bottom:.7rem}
+    .day-detail h3{font-size:.95rem;color:#b8d9ff;margin-bottom:.7rem;font-family:"Sora",sans-serif}
     .detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:.6rem}
     .detail-item{background:rgba(255,255,255,.04);border-radius:8px;padding:.55rem .7rem;text-align:center}
     .detail-item .dl{font-size:.68rem;color:#64748b;text-transform:uppercase;letter-spacing:.3px}
@@ -48,9 +48,11 @@
     /* Severity filter */
     .filter-row{display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem;align-items:center}
     .filter-row label{font-size:.78rem;color:#7cb8f5}
-    .sev-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:.3rem .7rem;font-size:.76rem;color:#94a3b8;cursor:pointer;font-family:"McLaren",Arial,sans-serif;transition:background .15s}
+    .sev-btn{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:.3rem .7rem;font-size:.76rem;color:#94a3b8;cursor:pointer;font-family:"Inter",Arial,sans-serif;transition:background .15s}
     .sev-btn.active{background:rgba(56,189,248,.15);color:#38bdf8;border-color:rgba(56,189,248,.3)}
     .sev-btn:hover{background:rgba(255,255,255,.1)}
+    /* Today divider */
+    .today-badge{display:inline-block;background:rgba(56,189,248,.18);color:#38bdf8;border:1px solid rgba(56,189,248,.35);border-radius:4px;font-size:.7rem;padding:.1rem .4rem;margin-left:.3rem;vertical-align:middle;font-weight:600}
   </style>
 </head>
 <body>
@@ -97,237 +99,222 @@
 {% raw %}
 <script>
 (function(){
-  let chart=null,allData=null,sevFilter='all';
+  'use strict';
+  let chart = null, allData = null, sevFilter = 'all';
 
   // Severity filter buttons
-  document.querySelectorAll('.sev-btn').forEach(b=>{
-    b.addEventListener('click',function(){
-      document.querySelectorAll('.sev-btn').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.sev-btn').forEach(b => {
+    b.addEventListener('click', function() {
+      document.querySelectorAll('.sev-btn').forEach(x => x.classList.remove('active'));
       this.classList.add('active');
-      sevFilter=this.dataset.sev;
-      if(allData)renderChart(allData);
+      sevFilter = this.dataset.sev;
+      if (allData) renderChart(allData);
     });
   });
 
-  document.getElementById('btn-go').addEventListener('click',generate);
-  document.getElementById('loc-input').addEventListener('keydown',e=>{if(e.key==='Enter')generate();});
+  document.getElementById('btn-go').addEventListener('click', generate);
+  document.getElementById('loc-input').addEventListener('keydown', e => { if (e.key === 'Enter') generate(); });
 
-  async function generate(){
-    const loc=document.getElementById('loc-input').value.trim();
-    if(!loc){setMsg('Please enter a location.','err');return;}
-    setMsg('<span class="spinner"></span> Fetching weather data & flood risk…','info');
-    document.getElementById('btn-go').disabled=true;
+  // Auto-load default location on page load
+  window.addEventListener('DOMContentLoaded', () => {
+    const v = document.getElementById('loc-input').value.trim();
+    if (v) generate();
+  });
+
+  async function generate() {
+    const loc = document.getElementById('loc-input').value.trim();
+    if (!loc) { setMsg('Please enter a location.', 'err'); return; }
+
+    setMsg('<span class="spinner"></span> Loading 28-day flood timeline…', 'info');
+    document.getElementById('btn-go').disabled = true;
     document.getElementById('day-detail').classList.remove('visible');
-    try{
-      // Fetch forecast risk (14 days ahead) + historical via parallel requests
-      const today=new Date();
-      const pastDates=[];
-      for(let i=14;i>=1;i--){
-        const d=new Date(today);d.setDate(d.getDate()-i);
-        pastDates.push(d.toISOString().slice(0,10));
+
+    try {
+      // Single batched call — returns 14 past days + 14 forecast days in one shot
+      const res = await fetch('/api/timeline-data?location=' + encodeURIComponent(loc));
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Server error ' + res.status);
       }
+      const data = await res.json();
 
-      // 1. Forecast risk (future 14 days)
-      const foreRes=await fetch('/api/forecast-risk?location='+encodeURIComponent(loc));
-      if(!foreRes.ok)throw new Error('Forecast API error');
-      const foreData=await foreRes.json();
+      // Normalise shape for the chart/detail functions
+      const timeline = (data.timeline || []).map(d => ({
+        date:     d.date,
+        precip:   d.precipitation_mm || 0,
+        risk:     d.risk_score || 0,
+        level:    d.risk_level || 'low',
+        tempMax:  d.temperature_max_c,
+        tempMin:  d.temperature_min_c,
+        wind:     d.windspeed_max_kmh,
+        factors:  d.factors || {},
+        isPast:   !!d.is_past,
+      }));
 
-      // 2. Historical weather for past 14 days (batch via archive)
-      const histRes=await fetch('/api/flood-risk-date?location='+encodeURIComponent(loc)+'&date='+pastDates[0]);
-      // We'll fetch each past day individually via the flood-risk-date endpoint
-      const pastResults=[];
-      // Fetch past days in small batches to avoid overloading
-      for(let i=0;i<pastDates.length;i+=4){
-        const batch=pastDates.slice(i,i+4);
-        const results=await Promise.allSettled(
-          batch.map(d=>fetch('/api/flood-risk-date?location='+encodeURIComponent(loc)+'&date='+d).then(r=>r.ok?r.json():null))
-        );
-        results.forEach(r=>pastResults.push(r.status==='fulfilled'?r.value:null));
-      }
+      allData = {
+        timeline,
+        todayStr:  data.today,
+        location:  data.location || loc,
+        elevation: data.elevation_m,
+      };
 
-      // Combine into timeline data
-      const timeline=[];
-
-      // Past days
-      pastResults.forEach((r,i)=>{
-        if(r&&r.weather&&r.flood_risk){
-          timeline.push({
-            date:pastDates[i],
-            precip:r.weather.precipitation_mm||0,
-            risk:r.flood_risk.risk_score||0,
-            level:r.flood_risk.risk_level||'low',
-            tempMax:r.weather.temperature_max_c,
-            tempMin:r.weather.temperature_min_c,
-            wind:r.weather.windspeed_max_kmh,
-            factors:r.flood_risk.factors||{},
-            isPast:true
-          });
-        }else{
-          timeline.push({date:pastDates[i],precip:0,risk:0,level:'low',factors:{},isPast:true});
-        }
-      });
-
-      // Today marker
-      const todayStr=today.toISOString().slice(0,10);
-
-      // Future days from forecast
-      if(foreData.forecast&&Array.isArray(foreData.forecast)){
-        foreData.forecast.forEach(day=>{
-          timeline.push({
-            date:day.date,
-            precip:day.precipitation_mm||0,
-            risk:day.risk_score||0,
-            level:day.risk_level||'low',
-            tempMax:day.temp_max_c,
-            tempMin:day.temp_min_c,
-            wind:day.windspeed_max_kmh,
-            factors:day.factors||{},
-            isPast:false
-          });
-        });
-      }
-
-      allData={timeline,todayStr,location:foreData.location||loc,elevation:foreData.elevation_m};
       renderChart(allData);
-      setMsg('✅ Timeline loaded — '+timeline.length+' days for '+allData.location,'ok');
-    }catch(e){
-      setMsg('❌ Error: '+e.message,'err');
+      setMsg(
+        '✅ Timeline loaded — ' + timeline.length + ' days for ' + allData.location +
+        (allData.elevation != null ? ' · ' + Math.round(allData.elevation) + ' m elev.' : ''),
+        'ok'
+      );
+    } catch (e) {
+      setMsg('❌ ' + e.message, 'err');
     }
-    document.getElementById('btn-go').disabled=false;
+
+    document.getElementById('btn-go').disabled = false;
   }
 
-  function renderChart(data){
-    const tl=data.timeline.filter(d=>{
-      if(sevFilter==='all')return true;
-      return d.level===sevFilter;
-    });
-    const labels=tl.map(d=>{
-      const dt=new Date(d.date+'T00:00:00');
-      const m=dt.toLocaleDateString('en-US',{month:'short',day:'numeric'});
-      return d.date===data.todayStr?'⬥ TODAY':m;
-    });
-    const precipData=tl.map(d=>d.precip);
-    const riskData=tl.map(d=>d.risk);
-    const bgColors=tl.map(d=>d.isPast?'rgba(59,130,246,0.6)':'rgba(59,130,246,0.35)');
-    const riskColors=tl.map(d=>d.risk>=60?'#ef4444':d.risk>=30?'#f59e0b':'#22c55e');
+  function renderChart(data) {
+    const tl = data.timeline.filter(d => sevFilter === 'all' || d.level === sevFilter);
 
-    if(chart){chart.destroy();}
-    const ctx2=document.getElementById('timeline-chart').getContext('2d');
-    chart=new Chart(ctx2,{
-      type:'bar',
-      data:{
+    const labels = tl.map(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      const label = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      return d.date === data.todayStr ? label + ' ★' : label;
+    });
+
+    const precipData  = tl.map(d => d.precip);
+    const riskData    = tl.map(d => d.risk);
+    const bgColors    = tl.map(d => d.isPast ? 'rgba(59,130,246,0.6)' : 'rgba(59,130,246,0.28)');
+    const riskColors  = tl.map(d => d.risk >= 60 ? '#ef4444' : d.risk >= 30 ? '#f59e0b' : '#22c55e');
+
+    if (chart) { chart.destroy(); }
+
+    const ctx = document.getElementById('timeline-chart').getContext('2d');
+    chart = new Chart(ctx, {
+      type: 'bar',
+      data: {
         labels,
-        datasets:[
+        datasets: [
           {
-            label:'Precipitation (mm)',
-            data:precipData,
-            backgroundColor:bgColors,
-            borderColor:'rgba(59,130,246,0.8)',
-            borderWidth:1,
-            borderRadius:4,
-            yAxisID:'y',
-            order:2
+            label: 'Precipitation (mm)',
+            data: precipData,
+            backgroundColor: bgColors,
+            borderColor: 'rgba(59,130,246,0.8)',
+            borderWidth: 1,
+            borderRadius: 4,
+            yAxisID: 'y',
+            order: 2,
           },
           {
-            label:'Flood Risk Score',
-            data:riskData,
-            type:'line',
-            borderColor:'#f97316',
-            backgroundColor:'rgba(249,115,22,0.1)',
-            pointBackgroundColor:riskColors,
-            pointBorderColor:riskColors,
-            pointRadius:5,
-            pointHoverRadius:8,
-            borderWidth:2.5,
-            tension:0.3,
-            fill:false,
-            yAxisID:'y1',
-            order:1
-          }
-        ]
+            label: 'Flood Risk Score',
+            data: riskData,
+            type: 'line',
+            borderColor: '#f97316',
+            backgroundColor: 'rgba(249,115,22,0.08)',
+            pointBackgroundColor: riskColors,
+            pointBorderColor: riskColors,
+            pointRadius: 5,
+            pointHoverRadius: 8,
+            borderWidth: 2.5,
+            tension: 0.35,
+            fill: false,
+            yAxisID: 'y1',
+            order: 1,
+          },
+        ],
       },
-      options:{
-        responsive:true,
-        maintainAspectRatio:false,
-        interaction:{mode:'index',intersect:false},
-        onClick:(evt,elements)=>{
-          if(elements.length>0){
-            const idx=elements[0].index;
-            showDetail(tl[idx],data);
-          }
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        onClick: (evt, elements) => {
+          if (elements.length > 0) showDetail(tl[elements[0].index], data);
         },
-        plugins:{
-          legend:{display:false},
-          tooltip:{
-            backgroundColor:'rgba(5,15,50,0.9)',
-            titleColor:'#b8d9ff',
-            bodyColor:'#94a3b8',
-            borderColor:'rgba(100,160,255,0.3)',
-            borderWidth:1,
-            padding:12,
-            callbacks:{
-              title:items=>tl[items[0].dataIndex].date+(tl[items[0].dataIndex].date===data.todayStr?' (Today)':''),
-              afterBody:items=>{
-                const d=tl[items[0].dataIndex];
-                return '\nRisk level: '+d.level.toUpperCase()+'\nClick for full breakdown';
-              }
-            }
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: 'rgba(5,15,50,0.92)',
+            titleColor: '#b8d9ff',
+            bodyColor: '#94a3b8',
+            borderColor: 'rgba(100,160,255,0.3)',
+            borderWidth: 1,
+            padding: 12,
+            callbacks: {
+              title: items => {
+                const d = tl[items[0].dataIndex];
+                return d.date + (d.date === data.todayStr ? ' — Today' : d.isPast ? ' — Observed' : ' — Forecast');
+              },
+              afterBody: items => {
+                const d = tl[items[0].dataIndex];
+                return [
+                  'Risk level: ' + d.level.toUpperCase(),
+                  'Click bar for detailed breakdown',
+                ];
+              },
+            },
           },
-          annotation:undefined
         },
-        scales:{
-          x:{
-            ticks:{color:'#64748b',font:{size:10,family:'McLaren'},maxRotation:45},
-            grid:{color:'rgba(100,160,255,0.06)'}
+        scales: {
+          x: {
+            ticks: { color: '#64748b', font: { size: 10, family: 'Inter' }, maxRotation: 45 },
+            grid:  { color: 'rgba(100,160,255,0.06)' },
           },
-          y:{
-            position:'left',
-            title:{display:true,text:'Precipitation (mm)',color:'#3b82f6',font:{size:11,family:'McLaren'}},
-            ticks:{color:'#3b82f6',font:{size:10}},
-            grid:{color:'rgba(100,160,255,0.06)'},
-            beginAtZero:true
+          y: {
+            position: 'left',
+            title: { display: true, text: 'Precipitation (mm)', color: '#3b82f6', font: { size: 11, family: 'Inter' } },
+            ticks: { color: '#3b82f6', font: { size: 10 } },
+            grid:  { color: 'rgba(100,160,255,0.06)' },
+            beginAtZero: true,
           },
-          y1:{
-            position:'right',
-            title:{display:true,text:'Flood Risk Score',color:'#f97316',font:{size:11,family:'McLaren'}},
-            ticks:{color:'#f97316',font:{size:10}},
-            grid:{drawOnChartArea:false},
-            min:0,max:100
-          }
-        }
-      }
+          y1: {
+            position: 'right',
+            title: { display: true, text: 'Flood Risk Score', color: '#f97316', font: { size: 11, family: 'Inter' } },
+            ticks: { color: '#f97316', font: { size: 10 } },
+            grid:  { drawOnChartArea: false },
+            min: 0, max: 100,
+          },
+        },
+      },
     });
   }
 
-  function showDetail(day,data){
-    const det=document.getElementById('day-detail');
-    const dt=new Date(day.date+'T00:00:00');
-    document.getElementById('detail-title').textContent=
-      dt.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'})+
-      (day.isPast?' (Past)':' (Forecast)')+
-      ' — '+data.location;
-    const f=day.factors||{};
-    const items=[
-      {l:'Flood Risk',v:day.risk+'/100',c:day.risk>=60?'#ef4444':day.risk>=30?'#f59e0b':'#22c55e'},
-      {l:'Risk Level',v:day.level.toUpperCase()},
-      {l:'Precipitation',v:(day.precip||0).toFixed(1)+' mm'},
-      {l:'Temp High',v:day.tempMax!=null?day.tempMax.toFixed(1)+'°C':'—'},
-      {l:'Temp Low',v:day.tempMin!=null?day.tempMin.toFixed(1)+'°C':'—'},
-      {l:'Wind Max',v:day.wind!=null?day.wind.toFixed(0)+' km/h':'—'},
-      {l:'Precip Risk',v:(f.precipitation_today_risk||f.precip_risk||0)+' pts'},
-      {l:'Cumulative',v:(f.cumulative_week_risk||f.cum_risk||0)+' pts'},
-      {l:'Water Prox',v:(f.water_proximity_risk||f.water_risk||0)+' pts'},
-      {l:'Terrain',v:(f.terrain_elevation_risk||f.elev_risk||0)+' pts'},
-      {l:'FEMA',v:(f.fema_historical_risk||f.fema_risk||0)+' pts'},
-      {l:'USGS',v:(f.usgs_gauge_risk||f.usgs_risk||0)+' pts'},
+  function showDetail(day, data) {
+    const f = day.factors || {};
+    const dt = new Date(day.date + 'T00:00:00');
+
+    document.getElementById('detail-title').textContent =
+      dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) +
+      (day.isPast ? ' — Observed' : ' — Forecast') +
+      ' · ' + data.location;
+
+    const riskColor = day.risk >= 60 ? '#ef4444' : day.risk >= 30 ? '#f59e0b' : '#22c55e';
+
+    const items = [
+      { l: 'Flood Risk',     v: day.risk + ' / 100',                       c: riskColor },
+      { l: 'Risk Level',     v: day.level.toUpperCase() },
+      { l: 'Precipitation',  v: (day.precip || 0).toFixed(1) + ' mm' },
+      { l: 'High Temp',      v: day.tempMax != null ? day.tempMax.toFixed(1) + ' °C' : '—' },
+      { l: 'Low Temp',       v: day.tempMin != null ? day.tempMin.toFixed(1) + ' °C' : '—' },
+      { l: 'Wind Max',       v: day.wind   != null ? day.wind.toFixed(0)   + ' km/h' : '—' },
+      { l: 'Precip Score',   v: (f.precipitation_today_risk || 0) + ' pts' },
+      { l: 'Cumulative',     v: (f.cumulative_week_risk      || 0) + ' pts' },
+      { l: 'Water Proximity',v: (f.water_proximity_risk      || 0) + ' pts' },
+      { l: 'Terrain',        v: (f.terrain_elevation_risk    || 0) + ' pts' },
+      { l: 'FEMA History',   v: (f.fema_historical_risk      || 0) + ' pts' },
+      { l: 'USGS Gauge',     v: (f.usgs_gauge_risk           || 0) + ' pts' },
     ];
-    document.getElementById('detail-grid').innerHTML=items.map(it=>
-      `<div class="detail-item"><div class="dl">${it.l}</div><div class="dv"${it.c?' style="color:'+it.c+'"':''}>${it.v}</div></div>`
+
+    document.getElementById('detail-grid').innerHTML = items.map(it =>
+      `<div class="detail-item"><div class="dl">${it.l}</div>` +
+      `<div class="dv"${it.c ? ' style="color:' + it.c + '"' : ''}>${it.v}</div></div>`
     ).join('');
-    det.classList.add('visible');
+
+    document.getElementById('day-detail').classList.add('visible');
   }
 
-  function setMsg(h,c){const e=document.getElementById('status-msg');e.innerHTML=h;e.className='status-msg '+c;}
+  function setMsg(h, c) {
+    const e = document.getElementById('status-msg');
+    e.innerHTML = h;
+    e.className = 'status-msg ' + c;
+  }
 })();
 </script>
 {% endraw %}

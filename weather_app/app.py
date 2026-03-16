@@ -773,13 +773,35 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
       Total: exactly 100 pts
     """
     try:
-        times = daily_data.get('time', [])
-        precip = daily_data.get('precipitation_sum', [])
+        times = daily_data.get('time', []) or []
+        precip = daily_data.get('precipitation_sum', []) or []
 
-        if date_str not in times:
+        if not times:
             return None
 
-        date_idx = times.index(date_str)
+        target_dt = datetime.strptime(date_str, '%Y-%m-%d').date()
+        resolved_idx = None
+        resolved_date = date_str
+
+        if date_str in times:
+            resolved_idx = times.index(date_str)
+        else:
+            parsed_times = []
+            for idx, t in enumerate(times):
+                try:
+                    parsed_times.append((idx, datetime.strptime(t, '%Y-%m-%d').date()))
+                except Exception:
+                    continue
+            if parsed_times:
+                resolved_idx, nearest_dt = min(parsed_times, key=lambda item: abs((item[1] - target_dt).days))
+                if abs((nearest_dt - target_dt).days) <= 1:
+                    resolved_date = nearest_dt.strftime('%Y-%m-%d')
+                else:
+                    return None
+            else:
+                return None
+
+        date_idx = resolved_idx
         precip_today = float(precip[date_idx]) if date_idx < len(precip) and precip[date_idx] is not None else 0.0
 
         # 7-day cumulative precipitation
@@ -849,6 +871,7 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
 
         return {
             'date': date_str,
+            'resolved_date': resolved_date,
             'risk_level': risk_level,
             'risk_score': round(final_score, 1),
             'precipitation_mm': round(precip_today, 1),
@@ -865,7 +888,11 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
                 'fema_historical_risk':     fema_risk,
                 'usgs_gauge_risk':          usgs_risk,
             },
-            'note': 'Flood risk from precipitation, terrain, water proximity (OSM), FEMA history, and USGS gauge.'
+            'note': (
+                'Flood risk synthesized from precipitation, antecedent rainfall, terrain, '
+                'water proximity, FEMA historical context, and USGS gauge observations.' +
+                (' Using nearest available daily weather data.' if resolved_date != date_str else '')
+            )
         }
     except Exception:
         logger.exception('Error calculating flood risk for date')
@@ -1463,6 +1490,9 @@ def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
     times     = forecast_daily.get('time', [])
     precip    = forecast_daily.get('precipitation_sum', [])
     precip_p  = forecast_daily.get('precipitation_probability_max', [])
+    temp_max  = forecast_daily.get('temperature_2m_max', [])
+    temp_min  = forecast_daily.get('temperature_2m_min', [])
+    wind_max  = forecast_daily.get('windspeed_10m_max', [])
 
     # Water proximity — use pre-fetched data if available, else live OSM lookup
     if water_data is not None:
@@ -1528,6 +1558,17 @@ def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
             'precipitation_mm': round(p_today, 1),
             'precip_prob_pct':  round(p_prob),
             'cum_7day_mm':      round(cum, 1),
+            'temperature_max_c': round(float(temp_max[i]), 1) if i < len(temp_max) and temp_max[i] is not None else None,
+            'temperature_min_c': round(float(temp_min[i]), 1) if i < len(temp_min) and temp_min[i] is not None else None,
+            'windspeed_max_kmh': round(float(wind_max[i]), 1) if i < len(wind_max) and wind_max[i] is not None else None,
+            'factors': {
+                'precipitation_today_risk': precip_risk,
+                'cumulative_week_risk': cum_risk,
+                'water_proximity_risk': water_risk,
+                'terrain_elevation_risk': elevation_risk,
+                'fema_historical_risk': fema_base,
+                'usgs_gauge_risk': usgs_base,
+            }
         })
     return results
 
@@ -2320,16 +2361,39 @@ def api_full_report():
         usgs_data  = _get(f_usgs,  {'gauges': [], 'gauge_risk_score': 0})
         water_data = _get(f_water, (0, None, None))
 
+    def _resolve_daily_index(_daily, _requested_date):
+        _times = (_daily or {}).get('time', []) or []
+        if not _times:
+            return None, _requested_date
+        if _requested_date in _times:
+            return _times.index(_requested_date), _requested_date
+        try:
+            _target_dt = datetime.strptime(_requested_date, '%Y-%m-%d').date()
+        except Exception:
+            return None, _requested_date
+        _parsed = []
+        for _idx, _time_str in enumerate(_times):
+            try:
+                _parsed.append((_idx, datetime.strptime(_time_str, '%Y-%m-%d').date()))
+            except Exception:
+                continue
+        if not _parsed:
+            return None, _requested_date
+        _best_idx, _best_dt = min(_parsed, key=lambda item: abs((item[1] - _target_dt).days))
+        if abs((_best_dt - _target_dt).days) > 1:
+            return None, _requested_date
+        return _best_idx, _best_dt.strftime('%Y-%m-%d')
+
     # 4. Weather on the specific date
     weather_that_day = None
     daily            = {}
     if historical_data and 'daily' in historical_data:
         daily = historical_data['daily']
-        times = daily.get('time', [])
-        if date_str in times:
-            idx = times.index(date_str)
+        idx, resolved_weather_date = _resolve_daily_index(daily, date_str)
+        if idx is not None:
             weather_that_day = {
                 'date':               date_str,
+                'resolved_date':      resolved_weather_date,
                 'temperature_max_c':  daily.get('temperature_2m_max',  [None])[idx],
                 'temperature_min_c':  daily.get('temperature_2m_min',  [None])[idx],
                 'precipitation_mm':   daily.get('precipitation_sum',   [None])[idx],
@@ -2356,11 +2420,12 @@ def api_full_report():
                 _fr = _http.get(_furl, params=_fpar, timeout=4)
                 _fr.raise_for_status()
                 _fd = _fr.json().get('daily', {})
-                if date_str in _fd.get('time', []):
+                idx, resolved_weather_date = _resolve_daily_index(_fd, date_str)
+                if idx is not None:
                     daily = _fd
-                    idx = daily['time'].index(date_str)
                     weather_that_day = {
                         'date':               date_str,
+                        'resolved_date':      resolved_weather_date,
                         'temperature_max_c':  daily.get('temperature_2m_max',  [None])[idx],
                         'temperature_min_c':  daily.get('temperature_2m_min',  [None])[idx],
                         'precipitation_mm':   daily.get('precipitation_sum',   [None])[idx],
@@ -2371,7 +2436,7 @@ def api_full_report():
 
     # 7. Flood risk score
     flood_risk = None
-    if daily and date_str in daily.get('time', []):
+    if daily and (daily.get('time', []) or []):
         flood_risk = calculate_flood_risk_for_date(
             lat, lon, date_str, daily,
             elevation_m=elevation,
@@ -2899,6 +2964,136 @@ def page_flood_cam():
 @app.route('/credits')
 def page_credits():
     return render_template('credits.html')
+
+
+@app.route('/api/timeline-data')
+def api_timeline_data():
+    """Fast batched timeline payload for the timeline page.
+
+    Returns 14 days of recent observed weather + flood risk, plus the 14-day
+    forward forecast — all from a single Open-Meteo daily call made server-side.
+    Parallel FEMA / USGS / OSM context lookups run concurrently.
+    Designed to keep end-to-end response time under ~5 seconds.
+    """
+    from datetime import datetime as _dt_tl, timedelta as _td_tl
+    from concurrent.futures import ThreadPoolExecutor as _TPE_tl
+    import time as _time_tl
+
+    location = (request.args.get('location') or request.args.get('q') or '').strip()
+    if not location:
+        return jsonify({'error': 'Provide a "location" parameter'}), 400
+
+    geo = geocode(location)
+    if not geo:
+        return jsonify({'error': 'location not found'}), 404
+
+    lat, lon, display_name, elev = geo
+    today = _dt_tl.utcnow().date()
+
+    t0 = _time_tl.monotonic()
+    budget = 4.5  # hard wall-clock seconds
+
+    def _get_or_default(fut, default):
+        remaining = max(0.1, budget - (_time_tl.monotonic() - t0))
+        try:
+            return fut.result(timeout=remaining)
+        except Exception:
+            return default
+
+    with _TPE_tl(max_workers=4) as pool:
+        f_daily = pool.submit(
+            _http.get,
+            'https://api.open-meteo.com/v1/forecast',
+            params={
+                'latitude':    lat,
+                'longitude':   lon,
+                'daily':       ','.join([
+                    'temperature_2m_max', 'temperature_2m_min',
+                    'precipitation_sum', 'precipitation_probability_max',
+                    'windspeed_10m_max', 'weathercode',
+                ]),
+                'past_days':      14,
+                'forecast_days':  16,
+                'temperature_unit': 'celsius',
+                'timezone':       'UTC',
+            },
+            timeout=4,
+        )
+        f_fema  = pool.submit(get_fema_flood_history,   lat, lon)
+        f_usgs  = pool.submit(get_usgs_stream_gauge,    lat, lon)
+        f_water = pool.submit(get_water_proximity_score, lat, lon)
+
+        try:
+            daily_resp = f_daily.result(timeout=max(0.5, budget - (_time_tl.monotonic() - t0)))
+            daily_resp.raise_for_status()
+            full_daily = daily_resp.json().get('daily', {})
+        except Exception as exc:
+            logger.exception('Timeline daily weather fetch failed')
+            return jsonify({'error': f'weather data unavailable: {exc}'}), 502
+
+        fema_data  = _get_or_default(f_fema,  {'events': [], 'historical_risk_score': 0})
+        usgs_data  = _get_or_default(f_usgs,  {'gauges': [], 'gauge_risk_score': 0})
+        water_data = _get_or_default(f_water, (0, None, None))
+
+    times = full_daily.get('time', []) or []
+    if not times:
+        return jsonify({'error': 'timeline weather data unavailable'}), 502
+
+    timeline = []
+
+    # Past 14 days — observed weather with historical flood risk scoring
+    for i_back in range(14, 0, -1):
+        date_str = (today - _td_tl(days=i_back)).strftime('%Y-%m-%d')
+        risk = calculate_flood_risk_for_date(
+            lat, lon, date_str, full_daily,
+            elevation_m=elev,
+            fema_data=fema_data,
+            usgs_data=usgs_data,
+            water_data=water_data,
+        )
+        if date_str in times:
+            idx = times.index(date_str)
+            timeline.append({
+                'date':             date_str,
+                'precipitation_mm': round(float(full_daily.get('precipitation_sum', [0])[idx] or 0), 1),
+                'temperature_max_c': full_daily.get('temperature_2m_max', [None])[idx],
+                'temperature_min_c': full_daily.get('temperature_2m_min', [None])[idx],
+                'windspeed_max_kmh': full_daily.get('windspeed_10m_max', [None])[idx],
+                'risk_score':  (risk or {}).get('risk_score', 0),
+                'risk_level':  (risk or {}).get('risk_level', 'low'),
+                'factors':     (risk or {}).get('factors', {}),
+                'is_past':     True,
+            })
+
+    # Forward 14 days — forecast weather with probabilistic flood risk
+    forecast = calculate_flood_risk_forecast(
+        lat, lon, full_daily,
+        elevation_m=elev,
+        fema_data=fema_data,
+        usgs_data=usgs_data,
+        water_data=water_data,
+    )
+    for day in forecast[:14]:
+        timeline.append({
+            'date':             day['date'],
+            'precipitation_mm': day.get('precipitation_mm', 0),
+            'temperature_max_c': day.get('temperature_max_c'),
+            'temperature_min_c': day.get('temperature_min_c'),
+            'windspeed_max_kmh': day.get('windspeed_max_kmh'),
+            'risk_score':  day.get('risk_score', 0),
+            'risk_level':  day.get('risk_level', 'low'),
+            'factors':     day.get('factors', {}),
+            'is_past':     False,
+        })
+
+    return jsonify({
+        'location':   display_name,
+        'latitude':   lat,
+        'longitude':  lon,
+        'elevation_m': elev,
+        'today':      today.strftime('%Y-%m-%d'),
+        'timeline':   timeline,
+    })
 
 
 @app.route('/timeline')

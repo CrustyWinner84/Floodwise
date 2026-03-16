@@ -26,7 +26,7 @@
     /* Header */
     .page-header{text-align:center;margin-bottom:2.5rem}
     .page-header h1{font-size:2rem;color:#b8d9ff;letter-spacing:.5px}
-    .page-header p{color:#7cb8f5;font-size:.95rem;margin-top:.4rem;max-width:620px;margin-inline:auto}
+    .page-header p{color:#7cb8f5;font-size:.95rem;margin-top:.4rem;max-width:720px;margin-inline:auto;line-height:1.65}
 
     /* Card */
     .card{background:rgba(5,15,50,.6);border:1px solid rgba(100,160,255,.18);border-radius:14px;padding:1.5rem 1.75rem;backdrop-filter:blur(8px);margin-bottom:1.6rem}
@@ -41,6 +41,11 @@
     .credit-name a:hover{text-decoration:underline}
     .credit-role{font-size:.75rem;color:#64748b;text-transform:uppercase;letter-spacing:.4px}
     .credit-desc{font-size:.82rem;color:#94a3b8;line-height:1.5}
+    .method-list{display:grid;gap:.8rem}
+    .method-item{background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:11px;padding:1rem 1.1rem}
+    .method-title{font-size:.9rem;color:#b8d9ff;font-weight:600;margin-bottom:.28rem}
+    .method-citation{font-size:.8rem;color:#38bdf8;line-height:1.5;word-break:break-word}
+    .method-note{font-size:.82rem;color:#94a3b8;line-height:1.6;margin-top:.35rem}
 
     /* Tech badge */
     .tech-badges{display:flex;flex-wrap:wrap;gap:.45rem;margin-top:.8rem}
@@ -71,7 +76,7 @@
 
   <header class="page-header">
     <h1>🏆 Credits &amp; Acknowledgements</h1>
-    <p>FloodWise is built on open data, open-source libraries, and free APIs. Here's everything that makes it work.</p>
+    <p>FloodWise is built upon open data, open-source infrastructure, and publicly accessible scientific and hydrologic services. This page documents the technical, methodological, and data foundations that underpin the platform.</p>
   </header>
 
   <!-- Developer -->
@@ -98,7 +103,7 @@
       <div class="credit-item">
         <div class="credit-role">Primary Weather API</div>
         <div class="credit-name"><a href="https://open-meteo.com" target="_blank">Open-Meteo</a></div>
-        <div class="credit-desc">Current weather, 16-day forecasts, historical archive (past 92 days via forecast, full archive for older), and elevation data. Free, no API key required.</div>
+        <div class="credit-desc">Provides current meteorological conditions, 16-day forecasts, historical daily weather coverage, and elevation services that support the platform's report generation pipeline.</div>
       </div>
       <div class="credit-item">
         <div class="credit-role">Geocoding</div>
@@ -120,17 +125,17 @@
       <div class="credit-item">
         <div class="credit-role">Federal Flood History</div>
         <div class="credit-name"><a href="https://www.fema.gov/api/open" target="_blank">FEMA OpenFEMA API</a></div>
-        <div class="credit-desc">Historical disaster declarations for flood events by state. Falls back to a static per-state risk table when Akamai blocks cloud IPs.</div>
+        <div class="credit-desc">Supplies historical disaster declaration records used to contextualize jurisdiction-level flood history. A conservative fallback table is used if the upstream service is temporarily inaccessible.</div>
       </div>
       <div class="credit-item">
         <div class="credit-role">Real-Time Stream Gauges</div>
         <div class="credit-name"><a href="https://waterservices.usgs.gov" target="_blank">USGS Water Services</a></div>
-        <div class="credit-desc">Live streamflow and gauge height data from USGS monitoring stations across the US. Free, no API key.</div>
+        <div class="credit-desc">Delivers live streamflow and gauge-height observations from USGS monitoring stations, supporting real-time hydrologic situational awareness.</div>
       </div>
       <div class="credit-item">
         <div class="credit-role">Water Body Proximity</div>
         <div class="credit-name"><a href="https://overpass-api.de" target="_blank">OSM Overpass API</a></div>
-        <div class="credit-desc">Queries OpenStreetMap for rivers, streams, canals, and water bodies within 2.5 km to compute proximity-based flood risk scoring.</div>
+        <div class="credit-desc">Queries OpenStreetMap hydrographic features such as rivers, streams, canals, and water bodies to estimate local proximity to drainage networks.</div>
       </div>
       <div class="credit-item">
         <div class="credit-role">Elevation Data</div>
@@ -141,6 +146,37 @@
         <div class="credit-role">Routing Engine</div>
         <div class="credit-name"><a href="https://project-osrm.org" target="_blank">OSRM (Open Source Routing Machine)</a></div>
         <div class="credit-desc">Calculates evacuation routes with real road geometry, turn-by-turn directions, distance, and duration estimates.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📚 Flood Risk Methodology &amp; Sources</h2>
+    <div class="method-list">
+      <div class="method-item">
+        <div class="method-title">Research-backed weighting framework</div>
+        <div class="method-citation">Kazakis, N., Kougias, I., &amp; Patsialis, T. (2015). Assessment of flood hazard areas at a regional scale using an index-based approach and Analytical Hierarchy Process. <em>Science of the Total Environment</em>, 538, 555–563. https://doi.org/10.1016/j.scitotenv.2015.08.055</div>
+        <div class="method-note">Used as a principal reference for balancing precipitation, drainage proximity, and terrain-related flood-susceptibility factors within the app's composite score.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-title">Natural and anthropogenic flood factor prioritization</div>
+        <div class="method-citation">Stefanidis, S., &amp; Stathis, D. (2013). Assessment of flood hazard based on natural and anthropogenic factors using analytic hierarchy process (AHP). <em>Natural Hazards</em>, 68, 569–585. https://doi.org/10.1007/s11069-013-0639-5</div>
+        <div class="method-note">Informed the relative prominence of rainfall, slope/elevation, and drainage-related variables in the platform's hazard scoring logic.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-title">GIS-AHP flood hazard mapping in urban settings</div>
+        <div class="method-citation">Gigović, L., Pamučar, D., Bajić, Z., &amp; Drobnjak, S. (2017). Application of GIS-Interval Rough AHP Methodology for Flood Hazard Mapping in Urban Areas. <em>Water</em>, 9(6), 360. https://doi.org/10.3390/w9060360</div>
+        <div class="method-note">Reinforced the significance of river proximity, elevation, and rainfall intensity as defensible flood-hazard indicators in a practical decision-support environment.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-title">Historical risk and resilience context</div>
+        <div class="method-citation">FEMA National Risk Index / Resilience Analysis and Planning Tool methodology. https://hazards.fema.gov/nri/</div>
+        <div class="method-note">Supports the use of historical flood frequency and jurisdiction-level hazard context as a bounded component of the overall flood-risk assessment.</div>
+      </div>
+      <div class="method-item">
+        <div class="method-title">Operational hydrologic forecasting context</div>
+        <div class="method-citation">NOAA / National Weather Service Advanced Hydrologic Prediction Service and operational hydrologic forecasting guidance. https://water.noaa.gov/</div>
+        <div class="method-note">Supports the emphasis on observed precipitation, antecedent rainfall, and live gauge observations as primary operational indicators of near-term flood potential.</div>
       </div>
     </div>
   </div>
