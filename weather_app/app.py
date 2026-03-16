@@ -3123,9 +3123,24 @@ def api_timeline_data():
                 'is_past':     True,
             })
 
-    # Forward 14 days — forecast weather with probabilistic flood risk
+    # Forward 14 days — forecast weather with probabilistic flood risk.
+    # calculate_flood_risk_forecast assumes times[0] == today, so we must slice
+    # full_daily to start at today's index before passing it.
+    today_str = today.strftime('%Y-%m-%d')
+    _today_idx = times.index(today_str) if today_str in times else None
+    if _today_idx is not None:
+        _fc_keys = ['time', 'temperature_2m_max', 'temperature_2m_min',
+                    'precipitation_sum', 'precipitation_probability_max',
+                    'windspeed_10m_max', 'weathercode']
+        forecast_daily_sliced = {
+            k: (full_daily.get(k) or [])[_today_idx:]
+            for k in _fc_keys
+        }
+    else:
+        forecast_daily_sliced = full_daily  # fallback: pass as-is
+
     forecast = calculate_flood_risk_forecast(
-        lat, lon, full_daily,
+        lat, lon, forecast_daily_sliced,
         elevation_m=elev,
         fema_data=fema_data,
         usgs_data=usgs_data,
