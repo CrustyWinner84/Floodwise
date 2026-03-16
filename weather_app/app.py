@@ -794,9 +794,16 @@ def calculate_flood_risk_for_date(lat: float, lon: float, date_str: str, daily_d
                     continue
             if parsed_times:
                 resolved_idx, nearest_dt = min(parsed_times, key=lambda item: abs((item[1] - target_dt).days))
-                if abs((nearest_dt - target_dt).days) <= 1:
+                if abs((nearest_dt - target_dt).days) <= 2:
                     resolved_date = nearest_dt.strftime('%Y-%m-%d')
+                    if nearest_dt != target_dt:
+                        logger.debug(
+                            'flood_risk_for_date: resolved %s → %s (nearest available)',
+                            date_str, resolved_date)
                 else:
+                    logger.warning(
+                        'flood_risk_for_date: no data within 2 days of %s (nearest: %s)',
+                        date_str, nearest_dt)
                     return None
             else:
                 return None
@@ -1352,52 +1359,87 @@ def api_flood_risk_date():
 
         daily = None
 
-        # For recent past (≤92 days) or near future (≤16 days), try forecast API first
+        def _nearest_idx(data_dict, req_date, max_delta=2):
+            """Return (index, resolved_date_str) for the closest date within max_delta days."""
+            _tms = (data_dict or {}).get('time', []) or []
+            if not _tms:
+                return None, req_date
+            if req_date in _tms:
+                return _tms.index(req_date), req_date
+            try:
+                _tgt = datetime.strptime(req_date, '%Y-%m-%d').date()
+                _ps  = [(i, datetime.strptime(t, '%Y-%m-%d').date()) for i, t in enumerate(_tms)]
+                _bi, _bd = min(_ps, key=lambda x: abs((x[1] - _tgt).days))
+                if abs((_bd - _tgt).days) <= max_delta:
+                    return _bi, _bd.strftime('%Y-%m-%d')
+            except Exception:
+                pass
+            return None, req_date
+
+        # Strategy: try forecast API first (covers ±92 days past + 16 days ahead),
+        # then archive API.  Accept the nearest available record within ±2 days to
+        # tolerate the archive's ~5-day publication lag and UTC day-boundary shifts.
         if -92 <= days_diff <= 16:
             try:
-                _past = min(92, max(7, -days_diff + 1)) if days_diff <= 0 else 7
-                _fore = min(16, max(1, days_diff + 1))  if days_diff >= 0 else 1
-                _furl = 'https://api.open-meteo.com/v1/forecast'
-                _fpar = {
-                    'latitude': lat, 'longitude': lon,
-                    'daily': 'temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode',
-                    'past_days': _past,
-                    'forecast_days': _fore,
-                    'temperature_unit': 'celsius',
-                    'timezone': 'UTC',
-                }
-                _fr = requests.get(_furl, params=_fpar, timeout=8)
-                _fr.raise_for_status()
-                _fd = _fr.json().get('daily', {})
-                if date_str in _fd.get('time', []):
+                _past = min(92, max(14, -days_diff + 3)) if days_diff <= 0 else 14
+                _fore = min(16, max(14, days_diff + 3))  if days_diff >= 0 else 1
+                _fd = _http.get(
+                    'https://api.open-meteo.com/v1/forecast',
+                    params={
+                        'latitude': lat, 'longitude': lon,
+                        'daily': 'temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode',
+                        'past_days': _past,
+                        'forecast_days': _fore,
+                        'temperature_unit': 'celsius',
+                        'timezone': 'UTC',
+                    },
+                    timeout=8,
+                ).json().get('daily', {})
+                _didx, _rdate = _nearest_idx(_fd, date_str)
+                if _didx is not None:
                     daily = _fd
             except Exception:
-                logger.debug('Forecast API fallback failed for %s', date_str)
+                logger.debug('Forecast API attempt failed for %s', date_str)
 
-        # Fall back to archive API for older dates (or if forecast didn't cover this date)
+        # Archive fallback for older dates or when forecast missed the date
         if daily is None:
-            start_date_obj = target_date - timedelta(days=15)
-            end_date_obj   = target_date + timedelta(days=15)
-            start_date = start_date_obj.strftime('%Y-%m-%d')
-            end_date   = end_date_obj.strftime('%Y-%m-%d')
-            historical_data = get_historical_weather(lat, lon, start_date, end_date)
-            if historical_data and 'daily' in historical_data:
-                _ad = historical_data['daily']
-                if date_str in _ad.get('time', []):
-                    daily = _ad
+            try:
+                _arc_end = min(
+                    target_date + timedelta(days=5),
+                    datetime.utcnow().date() - timedelta(days=2),
+                )
+                hist = get_historical_weather(
+                    lat, lon,
+                    (target_date - timedelta(days=20)).strftime('%Y-%m-%d'),
+                    _arc_end.strftime('%Y-%m-%d'),
+                )
+                if hist and 'daily' in hist:
+                    _adidx, _ = _nearest_idx(hist['daily'], date_str)
+                    if _adidx is not None:
+                        daily = hist['daily']
+            except Exception:
+                logger.debug('Archive API attempt failed for %s', date_str)
 
-        if daily is None or date_str not in daily.get('time', []):
-            return jsonify({'error': f'no weather data available for {date_str}'}), 404
-        
-        date_idx = daily['time'].index(date_str)
-        
+        if not daily or not daily.get('time'):
+            return jsonify({
+                'error': f'No weather data available near {date_str}. '
+                         'The archive API lags ~5 days; for very recent dates '
+                         'use a date more than 5 days in the past.'
+            }), 404
+
+        # Resolve best-available index (±2 day tolerance)
+        date_idx, _resolved_date = _nearest_idx(daily, date_str)
+        if date_idx is None:
+            return jsonify({'error': f'No weather record within 2 days of {date_str}'}), 404
+
         # Extract weather for that date
         weather_that_day = {
-            'date': date_str,
-            'temperature_max_c': daily.get('temperature_2m_max', [None])[date_idx],
-            'temperature_min_c': daily.get('temperature_2m_min', [None])[date_idx],
-            'precipitation_mm': daily.get('precipitation_sum', [None])[date_idx],
-            'windspeed_max_kmh': daily.get('windspeed_10m_max', [None])[date_idx],
+            'date':              date_str,
+            'resolved_date':     _resolved_date,
+            'temperature_max_c': (daily.get('temperature_2m_max', [None]) or [None])[date_idx],
+            'temperature_min_c': (daily.get('temperature_2m_min', [None]) or [None])[date_idx],
+            'precipitation_mm':  (daily.get('precipitation_sum',  [None]) or [None])[date_idx],
+            'windspeed_max_kmh': (daily.get('windspeed_10m_max',  [None]) or [None])[date_idx],
         }
         
         # Fetch FEMA historical flood declarations and USGS live gauge in parallel (non-fatal)
@@ -2345,23 +2387,52 @@ def api_full_report():
         except Exception:
             return default
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
-        f_weather = pool.submit(get_weather, lat, lon)
-        f_hist    = pool.submit(get_historical_weather, lat, lon, hist_start, hist_end) if need_archive else None
-        f_fema    = pool.submit(get_fema_flood_history, lat, lon)
-        f_usgs    = pool.submit(get_usgs_stream_gauge, lat, lon)
-        f_water   = pool.submit(get_water_proximity_score, lat, lon)
+    # Always pre-fetch a wide daily window in parallel so the flood-risk scorer
+    # never needs a second blocking network round-trip after this block completes.
+    _fc_past = min(92, max(14, abs(days_from_today) + 3)) if days_from_today < 0 else 14
+    _fc_fore = min(16, max(14, days_from_today + 3))      if days_from_today >= 0 else 1
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        f_weather  = pool.submit(get_weather, lat, lon)
+        f_hist     = pool.submit(get_historical_weather, lat, lon, hist_start, hist_end) if need_archive else None
+        f_fema     = pool.submit(get_fema_flood_history, lat, lon)
+        f_usgs     = pool.submit(get_usgs_stream_gauge, lat, lon)
+        f_water    = pool.submit(get_water_proximity_score, lat, lon)
+        f_daily_fc = pool.submit(
+            _http.get,
+            'https://api.open-meteo.com/v1/forecast',
+            params={
+                'latitude':       lat,
+                'longitude':      lon,
+                'daily':          'temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode',
+                'past_days':      _fc_past,
+                'forecast_days':  _fc_fore,
+                'temperature_unit': 'celsius',
+                'timezone':       'UTC',
+            },
+            timeout=4,
+        )
 
         current_weather = _get(f_weather, None)
         historical_data = _get(f_hist, None) if f_hist else None
         try:
-            fema_data = f_fema.result(timeout=max(0.1, 3.0 - (_t.monotonic() - _t0)))
+            fema_data = f_fema.result(timeout=max(0.1, 4.0 - (_t.monotonic() - _t0)))
         except Exception:
             fema_data = {'events': [], 'historical_risk_score': 0}
         usgs_data  = _get(f_usgs,  {'gauges': [], 'gauge_risk_score': 0})
         water_data = _get(f_water, (0, None, None))
+        # Collect the pre-fetched daily window (runs concurrently above — no extra latency)
+        forecast_daily_data = {}
+        try:
+            _fc_resp = _get(f_daily_fc, None)
+            if _fc_resp is not None:
+                _fc_resp.raise_for_status()
+                forecast_daily_data = _fc_resp.json().get('daily', {}) or {}
+        except Exception:
+            logger.debug('Pre-fetched daily forecast failed in full-report')
 
     def _resolve_daily_index(_daily, _requested_date):
+        """Return (index, resolved_date_str) for the closest date within ±2 days."""
         _times = (_daily or {}).get('time', []) or []
         if not _times:
             return None, _requested_date
@@ -2380,63 +2451,47 @@ def api_full_report():
         if not _parsed:
             return None, _requested_date
         _best_idx, _best_dt = min(_parsed, key=lambda item: abs((item[1] - _target_dt).days))
-        if abs((_best_dt - _target_dt).days) > 1:
+        if abs((_best_dt - _target_dt).days) > 2:
             return None, _requested_date
         return _best_idx, _best_dt.strftime('%Y-%m-%d')
 
-    # 4. Weather on the specific date
+    def _extract_weather_row(_daily, _idx, _req_date, _res_date):
+        return {
+            'date':              _req_date,
+            'resolved_date':     _res_date,
+            'temperature_max_c': (_daily.get('temperature_2m_max',  [None]) or [None])[_idx],
+            'temperature_min_c': (_daily.get('temperature_2m_min',  [None]) or [None])[_idx],
+            'precipitation_mm':  (_daily.get('precipitation_sum',   [None]) or [None])[_idx],
+            'windspeed_max_kmh': (_daily.get('windspeed_10m_max',   [None]) or [None])[_idx],
+        }
+
+    # 4. Resolve weather for the specific date.
+    # Priority: archive data (accurate for dates >5 days ago) → pre-fetched forecast
     weather_that_day = None
     daily            = {}
+
     if historical_data and 'daily' in historical_data:
-        daily = historical_data['daily']
-        idx, resolved_weather_date = _resolve_daily_index(daily, date_str)
+        _ad = historical_data['daily']
+        idx, resolved_weather_date = _resolve_daily_index(_ad, date_str)
         if idx is not None:
-            weather_that_day = {
-                'date':               date_str,
-                'resolved_date':      resolved_weather_date,
-                'temperature_max_c':  daily.get('temperature_2m_max',  [None])[idx],
-                'temperature_min_c':  daily.get('temperature_2m_min',  [None])[idx],
-                'precipitation_mm':   daily.get('precipitation_sum',   [None])[idx],
-                'windspeed_max_kmh':  daily.get('windspeed_10m_max',   [None])[idx],
-            }
+            daily = _ad
+            weather_that_day = _extract_weather_row(_ad, idx, date_str, resolved_weather_date)
 
-    # 4b. If the target date wasn't in the historical window (e.g. today or near-future),
-    #     fall back to the forecast API which covers ~92 past days + 16 days ahead.
-    if date_str not in (daily.get('time', [])):
-        days_diff = (target_date - today).days
-        if -92 <= days_diff <= 16:
-            try:
-                _past = min(92, max(7, -days_diff + 1)) if days_diff <= 0 else 7
-                _fore = min(16, max(1, days_diff + 1))  if days_diff >= 0 else 1
-                _furl = 'https://api.open-meteo.com/v1/forecast'
-                _fpar = {
-                    'latitude': lat, 'longitude': lon,
-                    'daily': 'temperature_2m_max,temperature_2m_min,precipitation_sum,windspeed_10m_max,weathercode',
-                    'past_days': _past,
-                    'forecast_days': _fore,
-                    'temperature_unit': 'celsius',
-                    'timezone': 'UTC',
-                }
-                _fr = _http.get(_furl, params=_fpar, timeout=4)
-                _fr.raise_for_status()
-                _fd = _fr.json().get('daily', {})
-                idx, resolved_weather_date = _resolve_daily_index(_fd, date_str)
-                if idx is not None:
-                    daily = _fd
-                    weather_that_day = {
-                        'date':               date_str,
-                        'resolved_date':      resolved_weather_date,
-                        'temperature_max_c':  daily.get('temperature_2m_max',  [None])[idx],
-                        'temperature_min_c':  daily.get('temperature_2m_min',  [None])[idx],
-                        'precipitation_mm':   daily.get('precipitation_sum',   [None])[idx],
-                        'windspeed_max_kmh':  daily.get('windspeed_10m_max',   [None])[idx],
-                    }
-            except Exception:
-                logger.debug('Forecast API fallback failed for %s in full-report', date_str)
+    # Fill from pre-fetched forecast if archive didn't have it (recent / future dates)
+    if weather_that_day is None and forecast_daily_data:
+        idx, resolved_weather_date = _resolve_daily_index(forecast_daily_data, date_str)
+        if idx is not None:
+            daily = forecast_daily_data
+            weather_that_day = _extract_weather_row(forecast_daily_data, idx, date_str, resolved_weather_date)
 
-    # 7. Flood risk score
+    # If we still have no weather_that_day, use whatever daily data is available so
+    # the flood risk scorer (which has its own nearest-date resolver) can still run.
+    if not daily:
+        daily = forecast_daily_data or (historical_data or {}).get('daily', {})
+
+    # 7. Flood risk score — runs whenever we have any daily data at all
     flood_risk = None
-    if daily and (daily.get('time', []) or []):
+    if daily and (daily.get('time') or []):
         flood_risk = calculate_flood_risk_for_date(
             lat, lon, date_str, daily,
             elevation_m=elevation,
@@ -2444,6 +2499,9 @@ def api_full_report():
             usgs_data=usgs_data,
             water_data=water_data,
         )
+        if flood_risk is None:
+            logger.warning('calculate_flood_risk_for_date returned None for %s at %s',
+                           date_str, display_name)
 
     # 8. Build Windy embed URL (precipitation overlay)
     windy_url = (
