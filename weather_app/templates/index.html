@@ -194,11 +194,55 @@
     .no-data { color: #556; font-size: 0.88rem; font-style: italic; }
     .windy-wrap { margin-top: 1.1rem; border-radius: 10px; overflow: hidden; border: 1px solid rgba(100,160,255,0.15); }
     .windy-wrap iframe { display: block; width: 100%; height: 380px; border: none; }
+    .zone-map-shell {
+      display: grid; gap: 0.85rem;
+    }
+    .zone-summary {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 0.65rem;
+    }
+    .zone-stat {
+      background: rgba(255,255,255,0.04); border: 1px solid rgba(100,160,255,0.12);
+      border-radius: 10px; padding: 0.8rem 0.95rem;
+    }
+    .zone-stat label {
+      display: block; font-size: 0.68rem; color: #7cb8f5; text-transform: uppercase;
+      letter-spacing: 0.5px; margin-bottom: 0.22rem;
+    }
+    .zone-stat span { color: #e5f0ff; font-size: 1rem; }
+    .zone-legend {
+      display: flex; flex-wrap: wrap; gap: 0.45rem;
+    }
+    .zone-chip {
+      display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.35rem 0.65rem;
+      border-radius: 999px; border: 1px solid rgba(100,160,255,0.16); background: rgba(255,255,255,0.04);
+      color: #dceaff; font-size: 0.78rem; font-weight: 600;
+    }
+    .zone-swatch {
+      width: 11px; height: 11px; border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,0.18) inset;
+    }
+    #zone-map {
+      height: 380px; border-radius: 12px; overflow: hidden;
+      border: 1px solid rgba(100,160,255,0.18); background: #091124;
+    }
+    .zone-note {
+      color: #93b6da; font-size: 0.78rem; line-height: 1.55;
+    }
+    .zone-driver-row {
+      display: flex; flex-wrap: wrap; gap: 0.45rem;
+    }
+    .zone-driver {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      padding: 0.25rem 0.55rem; border-radius: 999px;
+      border: 1px solid rgba(250,204,21,0.16); background: rgba(250,204,21,0.08);
+      color: #fde68a; font-size: 0.74rem;
+    }
     .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.3); border-top-color: #fff; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 0.4rem; }
     @keyframes spin { to { transform: rotate(360deg); } }
     @media (max-width: 600px) {
       .search-row { flex-direction: column; }
       .search-row input, .btn-get { width: 100%; }
+      #zone-map { height: 320px; }
     }
     /* ---- Evacuation Routes ------------------------------------------ */
     .evac-tabs { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
@@ -490,6 +534,17 @@
       <div id="risk-summary"></div>
     </div>
     <div class="section">
+      <div class="section-heading">&#x1F5FA;&#xFE0F; Flood Zone Screening Map</div>
+      <p style="font-size:0.82rem;color:#7cb8f5;margin-bottom:0.65rem">Color-coded susceptibility bands inspired by modern hazard maps for rapid situational awareness around the searched point. This is a modeled screening overlay, not an official regulatory floodplain boundary map.</p>
+      <div class="zone-map-shell">
+        <div class="zone-summary" id="zone-summary"><p class="no-data">Search a location to load the flood-zone overlay.</p></div>
+        <div class="zone-driver-row" id="zone-drivers"></div>
+        <div class="zone-legend" id="zone-legend"></div>
+        <div id="zone-map"></div>
+        <div class="zone-note" id="zone-note">Modeled using the same FloodWise risk engine, rainfall history, terrain, FEMA history, and nearby hydrology context.</div>
+      </div>
+    </div>
+    <div class="section">
       <div class="section-heading">&#x2601;&#xFE0F; Current Weather</div>
       <div class="kv-grid" id="cur-grid"></div>
     </div>
@@ -574,6 +629,8 @@ var FACTORS = [
   { key:'fema_historical_risk',     label:'Historical Flood Context',   max:10 },
   { key:'usgs_gauge_risk',          label:'Live Hydrologic Gauge',      max:10 }
 ];
+
+var _zoneMap = null, _zoneLayers = [];
 
 function renderLocation(d) {
   $s('loc-grid').innerHTML =
@@ -697,6 +754,83 @@ function renderUsgs(usgs) {
 
 function renderWindy(url) {
   $s('windy-wrap').innerHTML = '<iframe src="'+url+'" allowfullscreen loading="lazy"></iframe>';
+}
+
+function clearZoneLayers() {
+  if (!_zoneMap) return;
+  _zoneLayers.forEach(function(layer){
+    try { _zoneMap.removeLayer(layer); } catch (e) {}
+  });
+  _zoneLayers = [];
+}
+
+function renderFloodZoneMap(zoneData, locationName) {
+  if (!zoneData || !zoneData.center || !zoneData.bands || !zoneData.bands.length) {
+    $s('zone-summary').innerHTML = '<p class="no-data">Flood-zone overlay unavailable for this location.</p>';
+    $s('zone-drivers').innerHTML = '';
+    $s('zone-legend').innerHTML = '';
+    $s('zone-note').textContent = (zoneData && zoneData.note) || 'Flood-zone screening overlay unavailable.';
+    return;
+  }
+
+  if (!_zoneMap) {
+    _zoneMap = L.map('zone-map', { zoomControl: true, scrollWheelZoom: true });
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 19
+    }).addTo(_zoneMap);
+  }
+
+  clearZoneLayers();
+
+  var center = [zoneData.center.lat, zoneData.center.lon];
+  var bands = zoneData.bands.slice().sort(function(a,b){ return b.radius_m - a.radius_m; });
+  bands.forEach(function(band) {
+    var circle = L.circle(center, {
+      radius: band.radius_m,
+      color: band.color,
+      weight: 1.5,
+      opacity: 0.95,
+      fillColor: band.color,
+      fillOpacity: band.fill_opacity
+    }).bindPopup(
+      '<strong>' + band.label + ' zone</strong><br>' +
+      'Approx. radius: ' + Math.round(band.radius_m) + ' m<br>' +
+      'Indicative score: ' + band.risk_score_estimate + '/100'
+    ).addTo(_zoneMap);
+    _zoneLayers.push(circle);
+  });
+
+  var marker = L.circleMarker(center, {
+    radius: 8,
+    color: '#ffffff',
+    weight: 2,
+    fillColor: '#60a5fa',
+    fillOpacity: 1
+  }).bindPopup('<strong>' + (locationName || 'Selected location') + '</strong><br>FloodWise screening center point').addTo(_zoneMap);
+  _zoneLayers.push(marker);
+
+  var outer = bands[0];
+  _zoneMap.fitBounds(L.circle(center, {radius: outer.radius_m}).getBounds(), {padding:[16,16]});
+
+  $s('zone-summary').innerHTML =
+    '<div class="zone-stat"><label>Base Risk</label><span>' + (zoneData.base_risk_score != null ? zoneData.base_risk_score + ' / 100' : '—') + '</span></div>' +
+    '<div class="zone-stat"><label>Risk Tier</label><span>' + ((zoneData.base_risk_level || 'low').toUpperCase()) + '</span></div>' +
+    '<div class="zone-stat"><label>Zone Footprint</label><span>' + (zoneData.outer_radius_m ? (zoneData.outer_radius_m/1000).toFixed(1) + ' km' : '—') + '</span></div>' +
+    '<div class="zone-stat"><label>Nearest Water</label><span>' + (zoneData.nearest_water_body ? zoneData.nearest_water_body + (zoneData.water_distance_m != null ? ' · ' + zoneData.water_distance_m + ' m' : '') : 'No named nearby water body') + '</span></div>';
+
+  $s('zone-drivers').innerHTML = (zoneData.drivers || []).map(function(driver){
+    return '<span class="zone-driver">&#9889; ' + driver + '</span>';
+  }).join('');
+
+  $s('zone-legend').innerHTML = bands.slice().reverse().map(function(band){
+    return '<span class="zone-chip"><span class="zone-swatch" style="background:' + band.color + '"></span>' + band.label + '</span>';
+  }).join('');
+
+  $s('zone-note').textContent = zoneData.note || 'Model-generated flood susceptibility screening overlay.';
+
+  setTimeout(function(){ if (_zoneMap) _zoneMap.invalidateSize(); }, 60);
 }
 
 // --------------- 14-Day Forecast + Camera ----------------------------
@@ -964,6 +1098,7 @@ async function go() {
     $s('evac-status').textContent = '';
     $s('evac-section').style.display = 'block';
     $s('results').style.display = 'block';
+    renderFloodZoneMap(data.flood_zone_map, data.location);
     $s('results').scrollIntoView({behavior:'smooth',block:'start'});
     setStatus('');
   } catch(e) { setStatus('Network error: '+e.message, true); }

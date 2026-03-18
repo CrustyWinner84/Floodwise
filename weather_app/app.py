@@ -6,6 +6,7 @@ import os
 import sqlite3 as _sqlite3
 import time
 import functools
+import math
 from datetime import datetime, timedelta
 
 app = Flask(__name__, template_folder='templates')
@@ -1615,6 +1616,136 @@ def calculate_flood_risk_forecast(lat: float, lon: float, forecast_daily: dict,
     return results
 
 
+def build_flood_zone_map_payload(lat: float, lon: float,
+                                 elevation_m=None,
+                                 flood_risk=None,
+                                 weather_that_day=None,
+                                 fema_data=None,
+                                 usgs_data=None,
+                                 water_data=None):
+    """Build a color-coded screening overlay for nearby flood susceptibility.
+
+    This is intentionally presented as a model-generated situational-awareness
+    layer. It is not a regulatory FEMA floodplain boundary product.
+    """
+    try:
+        factors = (flood_risk or {}).get('factors', {}) or {}
+        overall = float((flood_risk or {}).get('risk_score') or 0)
+        precip_mm = float(
+            (weather_that_day or {}).get('precipitation_mm')
+            or (flood_risk or {}).get('precipitation_mm')
+            or 0
+        )
+        cumulative_mm = float((flood_risk or {}).get('cumulative_7day_precip_mm') or 0)
+
+        try:
+            elevation_val = float(elevation_m) if elevation_m is not None else None
+        except Exception:
+            elevation_val = None
+
+        if water_data is not None:
+            water_score, water_name, water_distance_m = water_data
+        else:
+            water_score = float(factors.get('water_proximity_risk') or 0)
+            water_name = (flood_risk or {}).get('water_body_name')
+            water_distance_m = (flood_risk or {}).get('water_distance_m')
+
+        terrain_score = float(factors.get('terrain_elevation_risk') or 0)
+        fema_score = float(factors.get('fema_historical_risk') or (fema_data or {}).get('historical_risk_score') or 0)
+        usgs_score = float(factors.get('usgs_gauge_risk') or (usgs_data or {}).get('gauge_risk_score') or 0)
+
+        low_ground_bonus = 0
+        if elevation_val is not None:
+            if elevation_val < 5:
+                low_ground_bonus = 18
+            elif elevation_val < 15:
+                low_ground_bonus = 12
+            elif elevation_val < 30:
+                low_ground_bonus = 7
+            elif elevation_val < 60:
+                low_ground_bonus = 3
+
+        outer_radius_m = int(max(
+            1200,
+            min(
+                5200,
+                1000
+                + overall * 25
+                + float(water_score or 0) * 55
+                + low_ground_bonus * 40
+                + min(500, precip_mm * 20)
+                + min(500, cumulative_mm * 6)
+                + float(usgs_score or 0) * 70
+            )
+        ))
+
+        band_defs = [
+            ('minimal', 'Minimal', '#3b82f6', 1.00, 0.12, 0.42),
+            ('guarded', 'Guarded', '#22c55e', 0.82, 0.14, 0.56),
+            ('elevated', 'Elevated', '#facc15', 0.64, 0.18, 0.72),
+            ('high', 'High', '#fb923c', 0.46, 0.22, 0.88),
+            ('severe', 'Severe', '#ef4444', 0.29, 0.28, 1.00),
+        ]
+
+        bands = []
+        for severity, label, color, radius_ratio, fill_opacity, score_ratio in band_defs:
+            score_estimate = min(100, max(6, round(overall * score_ratio + (8 if severity == 'severe' else 0))))
+            bands.append({
+                'severity': severity,
+                'label': label,
+                'color': color,
+                'radius_m': max(180, int(round(outer_radius_m * radius_ratio))),
+                'fill_opacity': fill_opacity,
+                'risk_score_estimate': score_estimate,
+            })
+
+        drivers = []
+        if precip_mm >= 10:
+            drivers.append(f'heavy daily rainfall ({precip_mm:.1f} mm)')
+        elif precip_mm >= 3:
+            drivers.append(f'recent rainfall ({precip_mm:.1f} mm)')
+        if cumulative_mm >= 40:
+            drivers.append(f'wet 7-day accumulation ({cumulative_mm:.1f} mm)')
+        if water_name or water_distance_m is not None:
+            if water_distance_m is not None:
+                drivers.append(f'water proximity ({int(water_distance_m)} m to {water_name or "nearest channel"})')
+            else:
+                drivers.append(f'water proximity near {water_name or "surface water"}')
+        if elevation_val is not None and elevation_val < 30:
+            drivers.append(f'low terrain ({elevation_val:.0f} m elevation)')
+        if fema_score >= 7:
+            drivers.append('historical FEMA flood context')
+        if usgs_score >= 5:
+            drivers.append('elevated stream-gauge signal')
+
+        if not drivers:
+            drivers = ['baseline terrain and hydrology screening']
+
+        return {
+            'center': {'lat': lat, 'lon': lon},
+            'outer_radius_m': outer_radius_m,
+            'base_risk_score': round(overall, 1),
+            'base_risk_level': (flood_risk or {}).get('risk_level', 'low'),
+            'nearest_water_body': water_name,
+            'water_distance_m': water_distance_m,
+            'elevation_m': elevation_val,
+            'bands': bands,
+            'drivers': drivers,
+            'note': (
+                'Model-generated flood susceptibility screening overlay based on current flood score, '
+                'rainfall, terrain, water proximity, FEMA history, and USGS gauge context. '
+                'Use official FEMA/NWS/local emergency maps for regulatory or life-safety decisions.'
+            ),
+        }
+    except Exception:
+        logger.exception('Failed to build flood-zone map payload')
+        return {
+            'center': {'lat': lat, 'lon': lon},
+            'bands': [],
+            'note': 'Flood-zone screening overlay unavailable for this request.'
+        }
+
+
 @app.route('/api/forecast-risk')
 def api_forecast_risk():
     """14-day flood risk forecast.
@@ -2528,6 +2659,15 @@ def api_full_report():
             'temperature_2m_min':  daily.get('temperature_2m_min', []),
         },
         'flood_risk':  flood_risk,
+        'flood_zone_map': build_flood_zone_map_payload(
+            lat, lon,
+            elevation_m=elevation,
+            flood_risk=flood_risk,
+            weather_that_day=weather_that_day,
+            fema_data=fema_data,
+            usgs_data=usgs_data,
+            water_data=water_data,
+        ),
         'fema_history': fema_data,
         'usgs_gauges':  usgs_data,
         'windy_embed_url': windy_url,
